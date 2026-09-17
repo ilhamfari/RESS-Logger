@@ -69,6 +69,7 @@ void Error_Handler(void);
 #define W5500_2_CS_GPIO_Port GPIOD
 #define W5500_2_INT_Pin GPIO_PIN_5
 #define W5500_2_INT_GPIO_Port GPIOD
+#define W5500_2_INT_EXTI_IRQn EXTI9_5_IRQn
 #define W5500_2_RST_Pin GPIO_PIN_6
 #define W5500_2_RST_GPIO_Port GPIOD
 
