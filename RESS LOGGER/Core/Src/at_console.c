@@ -7,6 +7,8 @@
 #include "fatfs.h"
 #include "bsp_driver_sd.h"
 #include "sdio.h"
+#include "spi.h"
+#include "w25q16.h"
 #include <string.h>
 #include <stdio.h>
 #include <ctype.h>
@@ -126,6 +128,37 @@ static void Print_SDCheck(void)
     printf("  mounted OK, capacity ~%lu MB\r\n", (unsigned long)capacity_mb);
 }
 
+static void Print_FlashCheck(void)
+{
+    printf("W25Q16 flash:\r\n");
+
+    W25Q16_Handle_t flash;
+    W25Q16_Init(&flash, &hspi3, FLASH_CS_GPIO_Port, FLASH_CS_Pin);
+
+    uint8_t id[3];
+    if (W25Q16_ReadJedecId(&flash, id) != HAL_OK)
+    {
+        printf("  JEDEC ID read FAILED (SPI error)\r\n");
+        return;
+    }
+
+    if (id[0] == 0x00U || id[0] == 0xFFU)
+    {
+        printf("  no response (ID=%02X %02X %02X) -- check wiring/CS\r\n", id[0], id[1], id[2]);
+        return;
+    }
+
+    printf("  JEDEC ID: %02X %02X %02X", id[0], id[1], id[2]);
+    if (id[0] == W25Q16_JEDEC_MANUFACTURER && id[1] == W25Q16_JEDEC_MEMTYPE)
+    {
+        printf(id[2] == W25Q16_JEDEC_CAPACITY ? " (Winbond, W25Q16)\r\n" : " (Winbond, capacity byte differs from W25Q16 -- update W25Q16_SIZE_BYTES if this is a different chip)\r\n");
+    }
+    else
+    {
+        printf(" (unrecognized manufacturer/type)\r\n");
+    }
+}
+
 static void Print_RTCCheck(void)
 {
     DS3231_Handle_t rtc;
@@ -160,14 +193,15 @@ static void Cmd_Check(void)
     Print_I2CScan();
     Print_RTCCheck();
     Print_SDCheck();
-    printf("(SPI devices -- W5500 x2, W25Q16 flash -- not covered yet, no driver)\r\n");
+    Print_FlashCheck();
+    printf("(W5500 x2 not covered yet, no driver)\r\n");
 }
 
 static void Cmd_Help(void)
 {
     printf("Commands:\r\n");
     printf("  AT     -- toggle the 1Hz sensor heartbeat print ON/OFF\r\n");
-    printf("  CHECK  -- scan I2C1 bus + RTC + SD card\r\n");
+    printf("  CHECK  -- scan I2C1 bus + RTC + SD card + W25Q16 flash\r\n");
     printf("  HELP   -- this message\r\n");
 }
 

@@ -111,6 +111,16 @@ int main(void)
   MX_FATFS_Init();
   MX_USB_DEVICE_Init();
   /* USER CODE BEGIN 2 */
+  /* CubeMX's generated MX_GPIO_Init() drives every output pin's initial
+   * level to RESET before configuring it, which leaves these active-low
+   * SPI chip-select lines asserted (selected) at boot -- gpio.c has no
+   * per-pin USER CODE hook to override this without CubeMX wiping it on
+   * regen, so fix it here instead. FLASH_CS (PA15) and W5500_2_CS (PD4)
+   * share the SPI3 bus, so both must idle high or the W25Q16 flash check
+   * would contend with the W5500 #2 chip for MISO. */
+  HAL_GPIO_WritePin(FLASH_CS_GPIO_Port, FLASH_CS_Pin, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(W5500_2_CS_GPIO_Port, W5500_2_CS_Pin, GPIO_PIN_SET);
+
   /* Capture and clear reset cause + fault marker now, before anything else
    * can touch them; the diagnostic print happens later once USB CDC is up. */
   uint32_t reset_flags = RCC->CSR;

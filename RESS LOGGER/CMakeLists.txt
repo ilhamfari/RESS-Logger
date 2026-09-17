@@ -54,6 +54,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/at24c256.c
     Core/Src/usb_cdc_stdio.c
     Core/Src/at_console.c
+    Core/Src/w25q16.c
 )
 
 # Add include paths
