@@ -24,11 +24,18 @@
 #include "sdio.h"
 #include "spi.h"
 #include "usart.h"
+#include "usb_device.h"
 #include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "ress_sensors.h"
+#include "ds3231.h"
+#include "at24c256.h"
+#include "at_console.h"
+#include <stdio.h>
 
+extern volatile uint32_t g_fault_marker; /* set by stm32f4xx_it.c fault handlers */
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -49,7 +56,8 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-
+static DS3231_Handle_t   rtc;
+static AT24C256_Handle_t eeprom;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -101,17 +109,94 @@ int main(void)
   MX_USART3_UART_Init();
   MX_IWDG_Init();
   MX_FATFS_Init();
+  MX_USB_DEVICE_Init();
   /* USER CODE BEGIN 2 */
+  /* Capture and clear reset cause + fault marker now, before anything else
+   * can touch them; the diagnostic print happens later once USB CDC is up. */
+  uint32_t reset_flags = RCC->CSR;
+  uint32_t fault_marker = g_fault_marker;
+  __HAL_RCC_CLEAR_RESET_FLAGS();
+  g_fault_marker = 0;
 
+  HAL_IWDG_Refresh(&hiwdg);
+
+  RESS_Sensors_Init(&hi2c1);
+
+  HAL_IWDG_Refresh(&hiwdg);
+
+  DS3231_Init(&rtc, &hi2c1);
+  {
+    DS3231_Time_t now;
+    if (DS3231_GetTime(&rtc, &now) != HAL_OK)
+    {
+      /* OSF set (lost power) or I2C error -- RTC time is not trustworthy.
+       * TODO: replace this placeholder with real provisioning (e.g. set
+       * from a build-time constant, a config command over UART/network,
+       * or NTP once a network link is up) instead of a fixed fallback. */
+      DS3231_Time_t fallback = { .year = 2026, .month = 1, .date = 1,
+                                  .hour = 0, .minute = 0, .second = 0 };
+      DS3231_SetTime(&rtc, &fallback);
+    }
+  }
+
+  AT24C256_Init(&eeprom, &hi2c1);
+
+  /* USB CDC needs the host to enumerate the device before it can accept
+   * data; give it a moment on cold boot so this first message isn't lost.
+   * IWDG timeout is ~512ms, so this wait is chunked with refreshes
+   * instead of one blocking HAL_Delay -- a single long delay here would
+   * let the watchdog reset the MCU mid-enumeration, forever. */
+  for (uint32_t i = 0; i < 15; i++)
+  {
+    HAL_IWDG_Refresh(&hiwdg);
+    HAL_Delay(100);
+  }
+  printf("RESS Logger boot OK\r\n");
+
+  if (reset_flags & RCC_CSR_IWDGRSTF)  printf("Reset cause: IWDG (watchdog)\r\n");
+  if (reset_flags & RCC_CSR_PORRSTF)   printf("Reset cause: POR/PDR (power-on/down)\r\n");
+  if (reset_flags & RCC_CSR_PINRSTF)   printf("Reset cause: NRST pin\r\n");
+  if (reset_flags & RCC_CSR_SFTRSTF)   printf("Reset cause: software (NVIC_SystemReset)\r\n");
+  if (reset_flags & RCC_CSR_LPWRRSTF)  printf("Reset cause: low-power\r\n");
+  if (reset_flags & RCC_CSR_WWDGRSTF)  printf("Reset cause: WWDG (window watchdog)\r\n");
+  if (fault_marker != 0)
+  {
+    printf("Fault before reset: marker=0x%08lX\r\n", (unsigned long)fault_marker);
+  }
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+  uint32_t next_heartbeat_tick = HAL_GetTick();
   while (1)
   {
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    HAL_IWDG_Refresh(&hiwdg);
+    AT_Console_Process();
+
+    if (HAL_GetTick() >= next_heartbeat_tick)
+    {
+      if (AT_Console_HeartbeatEnabled())
+      {
+      RESS_SensorData_t sensors;
+      RESS_Sensors_GetLatest(&sensors);
+
+      DS3231_Time_t now = {0};
+      DS3231_GetTime(&rtc, &now);
+
+      printf("[%04u-%02u-%02u %02u:%02u:%02u] V0=%ld.%02ldV V1=%ld.%02ldV I0=%ld.%02ldmA I1=%ld.%02ldmA valid=%d\r\n",
+             now.year, now.month, now.date, now.hour, now.minute, now.second,
+             (long)sensors.voltage_0_V, (long)((sensors.voltage_0_V - (long)sensors.voltage_0_V) * 100),
+             (long)sensors.voltage_1_V, (long)((sensors.voltage_1_V - (long)sensors.voltage_1_V) * 100),
+             (long)sensors.current_0_mA, (long)((sensors.current_0_mA - (long)sensors.current_0_mA) * 100),
+             (long)sensors.current_1_mA, (long)((sensors.current_1_mA - (long)sensors.current_1_mA) * 100),
+             sensors.valid);
+      }
+
+      next_heartbeat_tick = HAL_GetTick() + 1000U;
+    }
   }
   /* USER CODE END 3 */
 }
@@ -163,7 +248,18 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
-
+/**
+  * @brief EXTI callback -- fires when the ADS1115's ALERT/RDY pin (PE0)
+  *        pulses after completing a single-shot conversion. The chip
+  *        round-robins AIN0->AIN1->AIN2->AIN3 on its own; see ress_sensors.c.
+  */
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+    if (GPIO_Pin == GPIO_PIN_0)
+    {
+        RESS_Sensors_OnConversionReady();
+    }
+}
 /* USER CODE END 4 */
 
 /**

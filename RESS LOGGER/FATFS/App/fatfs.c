@@ -17,6 +17,8 @@
   */
 /* USER CODE END Header */
 #include "fatfs.h"
+#include "ds3231.h"
+#include "i2c.h"
 
 uint8_t retSD;    /* Return value for SD */
 char SDPath[4];   /* SD logical drive path */
@@ -45,7 +47,29 @@ void MX_FATFS_Init(void)
 DWORD get_fattime(void)
 {
   /* USER CODE BEGIN get_fattime */
-  return 0;
+  static DS3231_Handle_t fattime_rtc;
+  static bool fattime_rtc_ready = false;
+  DS3231_Time_t now;
+
+  if (!fattime_rtc_ready)
+  {
+    DS3231_Init(&fattime_rtc, &hi2c1);
+    fattime_rtc_ready = true;
+  }
+
+  if (DS3231_GetTime(&fattime_rtc, &now) != HAL_OK)
+  {
+    /* RTC unreadable/untrustworthy -- fall back to FatFs epoch (1980-01-01)
+     * rather than fabricating a time that looks valid but isn't. */
+    return 0;
+  }
+
+  return ((DWORD)(now.year - 1980) << 25)
+       | ((DWORD)now.month << 21)
+       | ((DWORD)now.date << 16)
+       | ((DWORD)now.hour << 11)
+       | ((DWORD)now.minute << 5)
+       | ((DWORD)(now.second / 2));
   /* USER CODE END get_fattime */
 }
 

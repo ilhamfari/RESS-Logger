@@ -46,7 +46,22 @@ void MX_SDIO_SD_Init(void)
   hsd.Init.HardwareFlowControl = SDIO_HARDWARE_FLOW_CONTROL_DISABLE;
   hsd.Init.ClockDiv = 0;
   /* USER CODE BEGIN SDIO_Init 2 */
+  /* Overrides for the two CubeMX values above. Kept in this USER CODE block
+   * so regenerating from the .ioc cannot silently revert them.
+   *
+   * BusWide: CubeMX emits SDIO_BUS_WIDE_4B, but a card is still in 1-bit
+   * mode during identification. SD_InitCard() re-applies this Init struct
+   * to the peripheral before ACMD6 has widened the card, so the ACMD51
+   * (SCR register) data read inside HAL_SD_ConfigWideBusOperation() waits
+   * on four lines while the card answers on DAT0 only -> DATA_TIMEOUT.
+   * Initialize 1-bit; BSP_SD_Init() then widens to 4-bit via ACMD6, so
+   * real transfers still run at full 4-bit width. */
+  hsd.Init.BusWide = SDIO_BUS_WIDE_1B;
 
+  /* ClockDiv: SDIO_CK = 48MHz / (ClockDiv + 2). This socket has no external
+   * pull-ups, so back off from CubeMX's 0 (24MHz) to 12MHz -- still far more
+   * than a logger needs. Raise only if throughput ever becomes a limit. */
+  hsd.Init.ClockDiv = 2;
   /* USER CODE END SDIO_Init 2 */
 
 }
@@ -89,7 +104,21 @@ void HAL_SD_MspInit(SD_HandleTypeDef* sdHandle)
     HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
 
   /* USER CODE BEGIN SDIO_MspInit 1 */
+  /* Re-init the same pins with pull-ups enabled. The SD spec expects
+   * pull-ups on CMD and DAT0-DAT3, but this board's socket has none --
+   * the schematic shows only a VCC decoupling cap -- so use the MCU's
+   * internal ones. Done here rather than by editing the GPIO_NOPULL
+   * lines above, which CubeMX would regenerate. */
+  GPIO_InitStruct.Pin = GPIO_PIN_8|GPIO_PIN_9|GPIO_PIN_10|GPIO_PIN_11
+                        |GPIO_PIN_12;
+  GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+  GPIO_InitStruct.Alternate = GPIO_AF12_SDIO;
+  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
+  GPIO_InitStruct.Pin = GPIO_PIN_2;
+  HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
   /* USER CODE END SDIO_MspInit 1 */
   }
 }

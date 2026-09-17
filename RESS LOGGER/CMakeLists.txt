@@ -48,6 +48,12 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 # Add sources to executable
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user sources here
+    Core/Src/ads1115.c
+    Core/Src/ress_sensors.c
+    Core/Src/ds3231.c
+    Core/Src/at24c256.c
+    Core/Src/usb_cdc_stdio.c
+    Core/Src/at_console.c
 )
 
 # Add include paths

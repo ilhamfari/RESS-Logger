@@ -182,6 +182,17 @@ SECTIONS
     __bss_end__ = _ebss;
   } >RAM
 
+  /* Uninitialized data that must survive a warm reset (not a power cycle),
+   * e.g. a fault marker written by a handler right before the watchdog
+   * resets the MCU. Never zero-initialized by startup, unlike .bss. */
+  .noinit (NOLOAD) :
+  {
+    . = ALIGN(4);
+    *(.noinit)
+    *(.noinit*)
+    . = ALIGN(4);
+  } >RAM
+
   /* User_heap_stack section, used to check that there is enough RAM left */
   ._user_heap_stack :
   {
