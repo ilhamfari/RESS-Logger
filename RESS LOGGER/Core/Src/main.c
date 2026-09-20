@@ -33,6 +33,10 @@
 #include "ds3231.h"
 #include "at24c256.h"
 #include "at_console.h"
+#include "w5500_port.h"
+#include "w5500_netcfg.h"
+#include "w5500_app.h"
+#include "dhcp.h"
 #include <stdio.h>
 
 extern volatile uint32_t g_fault_marker; /* set by stm32f4xx_it.c fault handlers */
@@ -108,18 +112,16 @@ int main(void)
   MX_USART2_UART_Init();
   MX_USART3_UART_Init();
   MX_IWDG_Init();
-  MX_FATFS_Init();
   MX_USB_DEVICE_Init();
+  MX_SPI2_Init();
+  MX_FATFS_Init();
   /* USER CODE BEGIN 2 */
   /* CubeMX's generated MX_GPIO_Init() drives every output pin's initial
-   * level to RESET before configuring it, which leaves these active-low
-   * SPI chip-select lines asserted (selected) at boot -- gpio.c has no
+   * level to RESET before configuring it, which leaves this active-low
+   * SPI chip-select line asserted (selected) at boot -- gpio.c has no
    * per-pin USER CODE hook to override this without CubeMX wiping it on
-   * regen, so fix it here instead. FLASH_CS (PA15) and W5500_2_CS (PD4)
-   * share the SPI3 bus, so both must idle high or the W25Q16 flash check
-   * would contend with the W5500 #2 chip for MISO. */
+   * regen, so fix it here instead. */
   HAL_GPIO_WritePin(FLASH_CS_GPIO_Port, FLASH_CS_Pin, GPIO_PIN_SET);
-  HAL_GPIO_WritePin(W5500_2_CS_GPIO_Port, W5500_2_CS_Pin, GPIO_PIN_SET);
 
   /* Capture and clear reset cause + fault marker now, before anything else
    * can touch them; the diagnostic print happens later once USB CDC is up. */
@@ -151,6 +153,23 @@ int main(void)
 
   AT24C256_Init(&eeprom, &hi2c1);
 
+  HAL_IWDG_Refresh(&hiwdg);
+
+  W5500_Port_Init();
+
+  uint8_t lan_ok = W5500_HardInit(W5500_LAN, &W5500_LAN_NET_INFO);
+  if (lan_ok)
+  {
+    LAN_App_Init();
+  }
+
+  uint8_t wan_ok = W5500_HardInit(W5500_WAN, &W5500_WAN_NET_INFO_TEMPLATE);
+  if (wan_ok)
+  {
+    W5500_Select(W5500_WAN);
+    WAN_App_Init();
+  }
+
   /* USB CDC needs the host to enumerate the device before it can accept
    * data; give it a moment on cold boot so this first message isn't lost.
    * IWDG timeout is ~512ms, so this wait is chunked with refreshes
@@ -173,11 +192,14 @@ int main(void)
   {
     printf("Fault before reset: marker=0x%08lX\r\n", (unsigned long)fault_marker);
   }
+  printf("W5500 LAN (SPI1): %s\r\n", lan_ok ? "OK" : "FAIL (check wiring/VER reg)");
+  printf("W5500 WAN (SPI2): %s\r\n", wan_ok ? "OK" : "FAIL (check wiring/VER reg)");
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   uint32_t next_heartbeat_tick = HAL_GetTick();
+  uint32_t next_dhcp_second_tick = HAL_GetTick() + 1000U;
   while (1)
   {
     /* USER CODE END WHILE */
@@ -185,6 +207,24 @@ int main(void)
     /* USER CODE BEGIN 3 */
     HAL_IWDG_Refresh(&hiwdg);
     AT_Console_Process();
+
+    if (wan_ok)
+    {
+      if (HAL_GetTick() >= next_dhcp_second_tick)
+      {
+        W5500_Select(W5500_WAN);
+        DHCP_time_handler();
+        next_dhcp_second_tick = HAL_GetTick() + 1000U;
+      }
+      W5500_Select(W5500_WAN);
+      WAN_Service_Poll();
+    }
+
+    if (lan_ok)
+    {
+      W5500_Select(W5500_LAN);
+      LAN_Webserver_Poll();
+    }
 
     if (HAL_GetTick() >= next_heartbeat_tick)
     {

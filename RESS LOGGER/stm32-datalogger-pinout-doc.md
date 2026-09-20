@@ -40,9 +40,9 @@ external 16-bit ADC, RTC, and dual-tier storage (onboard SD + onboard SPI flash)
 
 | Function | Peripheral | Pins | Notes |
 |---|---|---|---|
-| W5500 #1 (Ethernet) | SPI1 | SCK=PA5, MISO=PA6, MOSI=PA7, CS=PA4, INT=PC0, RST=PC1 | Bus shared with onboard flash (different CS) |
-| W5500 #2 (Ethernet) | SPI3 | SCK=PB3, MISO=PB4, MOSI=PB5, CS=PD4, INT=PD5, RST=PD6 | Moved off PA0/PA15 — see §3 conflicts |
-| Onboard W25Q16 flash | SPI1 (shared bus) | CS=PA15 | Onboard, wired at factory |
+| W5500 #1 / LAN (Ethernet) | SPI1 (dedicated) | SCK=PA5, MISO=PA6, MOSI=PA7, CS=PA4, RST=PC1 | No INT wired — polling only, v1 |
+| W5500 #2 / WAN (Ethernet) | SPI2 (dedicated) | SCK=PB10, MISO=PC2, MOSI=PC3, CS=PD4, INT=PD5, RST=PD6 | Moved off SPI3 (PB3/4/5) — PB4 not broken out on the Devebox header; SPI2 was free anyway, and this also avoids sharing a bus with the flash chip. Uses CubeMX's alternate SPI2 remap (PB10/PC2/PC3) rather than the default PB13/14/15 |
+| Onboard W25Q16 flash | SPI3 (dedicated) | SCK=PB3, MISO=PB4, MOSI=PB5, CS=PA15 | Onboard, wired at factory; no longer shares its bus with any W5500 |
 | MicroSD | SDIO (4-bit) | D0=PC8, D1=PC9, D2=PC10, D3=PC11, CK=PC12, CMD=PD2 | Onboard socket, no hardware card-detect line |
 | I2C bus (shared) | I2C1 | SCL=PB6, SDA=PB7 | ADS1115 ×2 (distinct ADDR pins), DS3231M, AT24C256 |
 | ESP32 link | USART1 | TX=PA9, RX=PA10 | |
@@ -63,7 +63,8 @@ planned pin assignments collided with existing traces:
 | Pin | Hardwired to | Original plan | Resolution |
 |---|---|---|---|
 | PA0 | K1 user button (WK_UP), pull-up R14 | W5500 #2 INT | Moved to PD5 |
-| PA15 | Onboard W25Q16 flash CS (F_CS), shared SPI1 bus | W5500 #2 CS | Moved to PD4; PA15 now correctly used for onboard flash CS |
+| PA15 | Onboard W25Q16 flash CS (F_CS) | W5500 #2 CS | Moved to PD4; PA15 used for onboard flash CS |
+| PB4 | Not broken out on the Devebox header (physically inaccessible, though electrically free once SWD-only debug is selected) | W5500 #2 (WAN) MISO on SPI3 | Moved WAN to SPI2 (PB13/14/15) instead — also removes the SPI-bus-sharing complexity with the flash chip |
 
 **Constraint noted:** PA0 (button) and PE0 (ADS1115 #1 alert) both sit on shared
 EXTI line 0. Not currently a conflict (PA0 isn't configured as EXTI), but flag this

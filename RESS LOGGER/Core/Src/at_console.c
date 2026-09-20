@@ -9,6 +9,7 @@
 #include "sdio.h"
 #include "spi.h"
 #include "w25q16.h"
+#include "w5500_port.h"
 #include <string.h>
 #include <stdio.h>
 #include <ctype.h>
@@ -183,6 +184,33 @@ static void Print_RTCCheck(void)
            now.year, now.month, now.date, now.hour, now.minute, now.second);
 }
 
+static void Print_W5500Check_One(const char *label, W5500_Instance_t inst)
+{
+    W5500_Select(inst);
+
+    uint8_t ver = getVERSIONR();
+    if (ver != 0x04U)
+    {
+        printf("  %s: no response (VERSIONR=0x%02X) -- check wiring/CS/RST\r\n", label, ver);
+        return;
+    }
+
+    int8_t link = wizphy_getphylink();
+    uint8_t ip[4];
+    getSIPR(ip);
+
+    printf("  %s: chip OK (VER=0x04), link %s, IP %u.%u.%u.%u\r\n",
+           label, (link == PHY_LINK_ON) ? "UP" : "DOWN",
+           ip[0], ip[1], ip[2], ip[3]);
+}
+
+static void Print_W5500Check(void)
+{
+    printf("W5500 Ethernet:\r\n");
+    Print_W5500Check_One("LAN (#1, SPI1)", W5500_LAN);
+    Print_W5500Check_One("WAN (#2, SPI2)", W5500_WAN);
+}
+
 static volatile bool s_heartbeat_enabled = true;
 
 bool AT_Console_HeartbeatEnabled(void)
@@ -202,14 +230,14 @@ static void Cmd_Check(void)
     Print_RTCCheck();
     Print_SDCheck();
     Print_FlashCheck();
-    printf("(W5500 x2 not covered yet, no driver)\r\n");
+    Print_W5500Check();
 }
 
 static void Cmd_Help(void)
 {
     printf("Commands:\r\n");
     printf("  AT     -- toggle the 1Hz sensor heartbeat print ON/OFF\r\n");
-    printf("  CHECK  -- scan I2C1 bus + RTC + SD card + W25Q16 flash\r\n");
+    printf("  CHECK  -- scan I2C1 bus + RTC + SD card + W25Q16 flash + W5500 x2\r\n");
     printf("  HELP   -- this message\r\n");
 }
 

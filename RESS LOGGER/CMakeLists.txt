@@ -55,16 +55,26 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/usb_cdc_stdio.c
     Core/Src/at_console.c
     Core/Src/w25q16.c
+    Core/Src/w5500_port.c
+    Core/Src/w5500_app.c
+    Drivers/W5500/ioLibrary_Driver/Ethernet/W5500/w5500.c
+    Drivers/W5500/ioLibrary_Driver/Ethernet/socket.c
+    Drivers/W5500/ioLibrary_Driver/Ethernet/wizchip_conf.c
+    Drivers/W5500/ioLibrary_Driver/Internet/DHCP/dhcp.c
 )
 
 # Add include paths
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined include paths
+    Drivers/W5500/ioLibrary_Driver/Ethernet
+    Drivers/W5500/ioLibrary_Driver/Ethernet/W5500
+    Drivers/W5500/ioLibrary_Driver/Internet/DHCP
 )
 
 # Add project symbols (macros)
 target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined symbols
+    _WIZCHIP_=W5500
 )
 
 # Add linked libraries
