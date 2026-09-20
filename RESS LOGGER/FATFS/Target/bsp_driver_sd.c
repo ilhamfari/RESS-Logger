@@ -55,15 +55,14 @@ __weak uint8_t BSP_SD_Init(void)
   }
   /* HAL SD initialization */
   sd_state = HAL_SD_Init(&hsd);
-  /* Configure SD Bus width (4 bits mode selected) */
-  if (sd_state == MSD_OK)
-  {
-    /* Enable wide operation */
-    if (HAL_SD_ConfigWideBusOperation(&hsd, SDIO_BUS_WIDE_4B) != HAL_OK)
-    {
-      sd_state = MSD_ERROR;
-    }
-  }
+  /* USER CODE BEGIN WideBusOperation */
+  /* Forced to 1-bit: these breakout modules only route DAT0 (as MISO)
+   * and DAT3 (as CS/CD) to header pins, DAT1/DAT2 are left unconnected.
+   * 4-bit mode needs all four data lines, so widening here just trades
+   * a working DAT0-only link for command timeouts / read errors on
+   * whichever line is floating. Revisit only if a socket with all
+   * four DAT lines wired is used instead of one of these modules. */
+  /* USER CODE END WideBusOperation */
 
   return sd_state;
 }

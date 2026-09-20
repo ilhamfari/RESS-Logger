@@ -1,0 +1,19 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug with ST-Link (OpenOCD)",
+      "cwd": "${workspaceFolder}",
+      "executable": "${workspaceFolder}/build/Debug/RESS_LOGGER.elf",
+      "request": "launch",
+      "type": "cortex-debug",
+      "servertype": "openocd",
+      "device": "STM32F407VG",
+      "configFiles": [
+        "interface/stlink.cfg",
+        "target/stm32f4x.cfg"
+      ]
+    }
+  ]
+}
+

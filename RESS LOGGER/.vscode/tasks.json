@@ -1,0 +1,21 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Flash STM32 (STM32CubeProgrammer)",
+      "type": "shell",
+      "command": "C:/Program Files/STMicroelectronics/STM32Cube/STM32CubeProgrammer/bin/STM32_Programmer_CLI.exe",
+      "args": ["-c", "port=SWD", "mode=UR", "reset=HWrst", "-w", "${workspaceFolder}/build/Debug/RESS_LOGGER.elf", "-v", "-rst"],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Flash STM32 (OpenOCD)",
+      "type": "shell",
+      "command": "openocd",
+      "args": ["-f", "interface/stlink.cfg", "-f", "target/stm32f4x.cfg", "-c", "program build/Debug/RESS_LOGGER.elf verify reset exit"],
+      "group": "none",
+      "problemMatcher": []
+    }
+  ]
+}

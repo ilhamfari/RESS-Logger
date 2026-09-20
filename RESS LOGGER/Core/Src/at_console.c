@@ -100,6 +100,14 @@ static void Print_SDCheck(void)
     /* Call BSP_SD_Init() directly first (rather than only through
      * f_mount -> disk_initialize) so a failure can be pinned to the
      * exact HAL_SD error code instead of just "mount failed". */
+    /* HAL_SD_Init() only clears hsd.ErrorCode *after* a successful init
+     * (see stm32f4xx_hal_sd.c), so a prior failed attempt leaves stale
+     * bits that get OR'd into the next one, making the printed code
+     * look like two unrelated errors at once. Force a clean slate. */
+    HAL_SD_DeInit(&hsd);
+    hsd.ErrorCode = HAL_SD_ERROR_NONE;
+    hsd.State = HAL_SD_STATE_RESET;
+
     uint8_t sd_state = BSP_SD_Init();
     if (sd_state != MSD_OK)
     {

@@ -50,12 +50,11 @@ void MX_SDIO_SD_Init(void)
    * so regenerating from the .ioc cannot silently revert them.
    *
    * BusWide: CubeMX emits SDIO_BUS_WIDE_4B, but a card is still in 1-bit
-   * mode during identification. SD_InitCard() re-applies this Init struct
-   * to the peripheral before ACMD6 has widened the card, so the ACMD51
-   * (SCR register) data read inside HAL_SD_ConfigWideBusOperation() waits
-   * on four lines while the card answers on DAT0 only -> DATA_TIMEOUT.
-   * Initialize 1-bit; BSP_SD_Init() then widens to 4-bit via ACMD6, so
-   * real transfers still run at full 4-bit width. */
+   * mode during identification, so this only ever mattered for the
+   * ACMD51 (SCR) read inside HAL_SD_ConfigWideBusOperation(). Kept at
+   * 1-bit permanently now -- BSP_SD_Init() (FATFS/Target/bsp_driver_sd.c)
+   * no longer widens to 4-bit, because these breakout SD modules only
+   * route DAT0/DAT3 to header pins and leave DAT1/DAT2 unconnected. */
   hsd.Init.BusWide = SDIO_BUS_WIDE_1B;
 
   /* ClockDiv: SDIO_CK = 48MHz / (ClockDiv + 2). This socket has no external
