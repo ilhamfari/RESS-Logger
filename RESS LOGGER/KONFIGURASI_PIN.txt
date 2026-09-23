@@ -1,0 +1,82 @@
+RANGKUMAN KONFIGURASI PIN
+
+W5500 #1 / LAN - SPI1
+  PA5  = SCK
+  PA6  = MISO
+  PA7  = MOSI
+  PA4  = CS
+  PC1  = RESET
+
+W5500 #2 / WAN - SPI2
+  PB10 = SCK
+  PC2  = MISO
+  PC3  = MOSI
+  PD4  = CS
+  PD6  = RESET
+  PD5  = INT, interrupt rising edge
+
+Flash W25Q16 - SPI3
+  PB3  = SCK
+  PB4  = MISO
+  PB5  = MOSI
+  PA15 = CS
+
+I2C1 - ADS1115, DS3231, AT24C256
+  PB6  = SCL
+  PB7  = SDA
+
+ADS1115
+  PE0  = ALERT/RDY, interrupt rising edge
+  AIN0 = Input tegangan 0-10 V #1 (pin pada ADS1115)
+  AIN1 = Input tegangan 0-10 V #2 (pin pada ADS1115)
+  AIN2 = Input arus 4-20 mA #1 (pin pada ADS1115)
+  AIN3 = Input arus 4-20 mA #2 (pin pada ADS1115)
+
+USART1
+  PA9  = TX
+  PA10 = RX
+
+USART2
+  PA2  = TX
+  PA3  = RX
+
+USART3
+  PD8  = TX
+  PD9  = RX
+
+Kontrol RS485
+  PA8  = DE, output push-pull
+
+USB OTG FS / CDC
+  PA11 = D-
+  PA12 = D+
+
+SD Card - SDIO
+  PC8  = D0
+  PC9  = D1
+  PC10 = D2
+  PC11 = D3
+  PC12 = CLK
+  PD2  = CMD
+  Mode yang digunakan kode: 1-bit (D0).
+  D1-D3 tetap dikonfigurasi sebagai pin SDIO.
+
+GPIO tambahan
+  PE2, PE3, PE4, PE5, PE6 = Output push-pull; fungsi khusus belum diberi nama.
+  PE1 = Input interrupt rising edge; fungsi khusus belum diberi nama.
+
+Debug SWD - konfigurasi .ioc
+  PA13 = SWDIO
+  PA14 = SWCLK
+
+Osilator HSE - konfigurasi .ioc
+  PH0 = OSC_IN
+  PH1 = OSC_OUT
+
+MODE PIN
+  SPI, USART, USB : Alternate function push-pull, tanpa pull-up/pull-down.
+  I2C1            : Alternate function open-drain, tanpa pull-up/pull-down internal.
+  SDIO            : Alternate function push-pull, pull-up internal termasuk CLK.
+  CS, RESET, DE,
+  PE2-PE6         : Output push-pull, tanpa pull-up/pull-down.
+  PD5, PE0, PE1   : Interrupt rising edge, tanpa pull-up/pull-down.
