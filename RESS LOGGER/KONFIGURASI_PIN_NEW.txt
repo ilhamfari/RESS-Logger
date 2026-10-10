@@ -1,0 +1,132 @@
+RENCANA PIN: SD CARD SPI + 6 UART
+MCU: STM32F407VGT6, LQFP100
+
+STATUS
+  Dokumen ini adalah rencana pin.
+  Konfigurasi kode dan file .ioc belum diubah.
+
+1. SD CARD DIPINDAHKAN DARI SDIO KE SPI3
+
+  SD_SCK   = PB3  (SPI3_SCK)
+  SD_MISO  = PB4  (SPI3_MISO)
+  SD_MOSI  = PB5  (SPI3_MOSI)
+  SD_CS    = PC8  (GPIO output, aktif LOW)
+
+  SPI3 dipakai bersama oleh SD card dan flash W25Q16.
+
+  Flash W25Q16:
+    FLASH_SCK  = PB3
+    FLASH_MISO = PB4
+    FLASH_MOSI = PB5
+    FLASH_CS   = PA15
+
+  Aturan chip select:
+    - Saat mengakses SD card, PC8 LOW dan PA15 HIGH.
+    - Saat mengakses flash, PA15 LOW dan PC8 HIGH.
+    - Saat tidak ada akses, PC8 dan PA15 HIGH.
+    - Kedua CS tidak boleh LOW secara bersamaan.
+
+  Catatan perangkat keras:
+    - Jalur SD card harus dipindahkan ke PB3, PB4, PB5, dan PC8.
+    - MISO modul SD harus high-impedance ketika SD_CS HIGH.
+    - Gunakan suplai dan level logika 3,3 V yang sesuai untuk SD card.
+
+2. RENCANA ENAM UART
+
+  USART1
+    TX = PA9
+    RX = PA10
+
+  USART2
+    TX = PA2
+    RX = PA3
+
+  USART3
+    TX = PD8
+    RX = PD9
+
+  UART4
+    TX = PC10
+    RX = PC11
+
+  UART5
+    TX = PC12
+    RX = PD2
+
+  USART6
+    TX = PC6
+    RX = PC7
+
+3. PIN SDIO LAMA SETELAH MIGRASI
+
+  PC8  = SD_CS baru
+  PC9  = Bebas; dapat dipakai untuk SD card detect jika dibutuhkan
+  PC10 = UART4_TX
+  PC11 = UART4_RX
+  PC12 = UART5_TX
+  PD2  = UART5_RX
+
+4. PERIFERAL YANG TETAP
+
+  W5500 #1 / LAN - SPI1
+    PA5 = SCK
+    PA6 = MISO
+    PA7 = MOSI
+    PA4 = CS
+    PC1 = RESET
+
+  W5500 #2 / WAN - SPI2
+    PB10 = SCK
+    PC2  = MISO
+    PC3  = MOSI
+    PD4  = CS
+    PD5  = INT
+    PD6  = RESET
+
+  I2C1
+    PB6 = SCL
+    PB7 = SDA
+
+  ADS1115
+    PE0 = ALERT/RDY
+
+  RS485
+    PA8 = DE
+
+  USB OTG FS
+    PA11 = D-
+    PA12 = D+
+
+  Debug SWD
+    PA13 = SWDIO
+    PA14 = SWCLK
+
+  HSE
+    PH0 = OSC_IN
+    PH1 = OSC_OUT
+
+5. PIN YANG MASIH BEBAS DALAM RENCANA INI
+
+  PA0
+  PA1
+  PC9
+
+6. PERUBAHAN KONFIGURASI YANG AKAN DIPERLUKAN
+
+  - Nonaktifkan SDIO dan FATFS_SDIO pada file .ioc.
+  - Aktifkan UART4, UART5, dan USART6 sesuai peta di atas.
+  - Ubah PC8 menjadi GPIO output dengan label SD_CS.
+  - Pertahankan SPI3 sebagai bus bersama flash dan SD card.
+  - Ganti driver disk FatFs dari SDIO ke SPI.
+  - Saat inisialisasi, set SD_CS dan FLASH_CS HIGH sebelum transaksi SPI.
+  - Driver SD harus memakai clock lambat saat inisialisasi kartu, lalu dapat
+    menaikkan clock setelah kartu masuk mode transfer.
+  - Akses SPI3 harus dijaga agar transaksi SD dan flash tidak bertumpuk.
+
+7. HASIL PENGECEKAN KONFLIK
+
+  Tidak ada konflik pin pada peta target di atas.
+  SDIO tidak dapat dipertahankan jika UART5 ingin digunakan, karena:
+    PC12 dipakai bersama oleh SDIO_CK dan UART5_TX.
+    PD2 dipakai bersama oleh SDIO_CMD dan UART5_RX.
+
