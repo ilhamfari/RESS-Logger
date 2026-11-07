@@ -8,7 +8,6 @@
 typedef enum
 {
     W5500_LAN = 0,
-    W5500_WAN = 1,
     W5500_COUNT
 } W5500_Instance_t;
 
@@ -17,12 +16,12 @@ typedef struct
     SPI_HandleTypeDef *hspi;
     GPIO_TypeDef *cs_port;  uint16_t cs_pin;
     GPIO_TypeDef *rst_port; uint16_t rst_pin;
-    GPIO_TypeDef *int_port; uint16_t int_pin;   /* int_port == NULL: unused (LAN in v1) */
+    GPIO_TypeDef *int_port; uint16_t int_pin;   /* int_port == NULL: unused */
 } W5500_Ctx_t;
 
 /* Registers HAL SPI/GPIO callbacks with ioLibrary (once) and prepares the
- * per-instance context table. Must run after MX_SPI1_Init()/MX_SPI3_Init()
- * and MX_GPIO_Init(). */
+ * per-instance context table. Must run after MX_SPI1_Init() and
+ * MX_GPIO_Init(). */
 void W5500_Port_Init(void);
 
 /* Points every subsequent ioLibrary call at this chip's SPI/CS/RST. ioLibrary

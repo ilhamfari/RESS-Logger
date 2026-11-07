@@ -1,0 +1,129 @@
+RENCANA PIN - PLAN B (PROTOTIPE CEPAT, PCB DEVEBOX)
+MCU: STM32F407VGT6, LQFP100 (modul DevEBox)
+
+STATUS
+  Dokumen ini adalah rencana pin untuk jalur prototipe cepat menggunakan
+  modul DevEBox. Konfigurasi kode dan file .ioc belum diubah.
+  Lihat juga KONFIGURASI_PIN.txt dan KONFIGURASI_PIN_NEW.txt untuk rencana
+  PCB custom (Plan A).
+
+  Pin flash onboard dan SD card SPI telah diverifikasi terhadap skematik
+  referensi DevEBox STM32F4XX_M (stm32-base.org, file STM32_F4VX_M.SchDoc).
+  Pada skematik tersebut:
+    - Flash W25Q16 (U3) terhubung ke CS=PA15, dan ke jalur yang diberi
+      label "SPI1_SCK/MISO/MOSI" tetapi secara fisik berada di PB3/PB4/PB5
+      (pin ini adalah pin native SPI3, bisa juga di-remap sebagai SPI1 AF5).
+    - Footprint MiniSD pada skematik referensi punya jalur mode SPI:
+      PB12=CS, PB13=SCK, PB14=MISO, PB15=MOSI (pin native SPI2).
+      NAMUN pada PCB yang dipakai di proyek ini, SD card SPI2 dikabel ke
+      pin remap SPI2: SD_CS=PA0, SCK=PB10, MISO=PC2, MOSI=PC3 (dikonfirmasi
+      oleh pengguna, berbeda dari skematik referensi DevEBox generik).
+  Karena itu, flash onboard dan W5500 TIDAK berbagi bus fisik yang sama;
+  flash ada di PB3/PB4/PB5 sedangkan W5500 (custom, bukan bagian skematik
+  referensi) direncanakan di PA5/PA6/PA7. Keduanya kebetulan bisa disebut
+  "SPI1" lewat remap AF, tetapi berbeda pin fisik, jadi disarankan pakai
+  peripheral SPI yang berbeda (SPI3 untuk flash, SPI1 untuk W5500) agar
+  tidak perlu berbagi bus sama sekali.
+
+PERBEDAAN UTAMA DARI PLAN A
+  - SD card pindah ke SPI2, pada pin remap SD_CS=PA0, SCK=PB10, MISO=PC2,
+    MOSI=PC3 (bukan SPI3/SDIO seperti Plan A, dan bukan PB12-PB15 seperti
+    pada skematik referensi DevEBox generik).
+  - Flash W25Q menggunakan chip onboard modul DevEBox pada SPI3
+    (PB3/PB4/PB5, CS=PA15), bukan modul eksternal dan bukan berbagi bus
+    dengan W5500.
+  - ESP (WiFi/serial bridge) dipasang di USART3 (PD8/PD9).
+  - RS485 dipasang di USART1 (PA9/PA10), modul auto-direction sehingga
+    tidak memerlukan pin DE terpisah.
+  - I2C1 menaungi empat perangkat: EEPROM, RTC, ADS1115, dan OLED.
+
+1. SPI1 - W5500 (BUS TERPISAH DARI FLASH)
+
+  SCK  = PA5
+  MISO = PA6
+  MOSI = PA7
+
+  W5500 CS    = PA4
+  W5500 RESET = PC1
+
+2. SPI2 - SD CARD (pin remap, dikonfirmasi pada PCB proyek ini)
+
+  SD_CS = PA0
+  SCK   = PB10
+  MISO  = PC2
+  MOSI  = PC3
+
+3. SPI3 - FLASH ONBOARD W25Q16 (pin native PB3-PB5, sesuai skematik DevEBox)
+
+  SCK  = PB3
+  MISO = PB4
+  MOSI = PB5
+  FLASH CS = PA15
+
+  Catatan: PB3 dan PB4 juga berfungsi sebagai JTDO/JNTRST. Ini tidak
+  masalah selama debug memakai mode SWD (JTAG dimatikan), sesuai
+  konfigurasi Debug SWD di bagian 6.
+
+4. USART1 - RS485
+
+  TX = PA9
+  RX = PA10
+  Modul RS485 auto-direction, tidak ada pin DE.
+
+5. USART3 - ESP (WiFi / serial bridge)
+
+  TX = PD8
+  RX = PD9
+
+6. I2C1 - EEPROM, RTC, ADS1115, OLED
+
+  SCL = PB6
+  SDA = PB7
+
+  ADS1115
+    PE0  = ALERT/RDY, interrupt rising edge
+    AIN0 = Input tegangan 0-10 V #1
+    AIN1 = Input tegangan 0-10 V #2
+    AIN2 = Input arus 4-20 mA #1
+    AIN3 = Input arus 4-20 mA #2
+
+7. PERIFERAL YANG TETAP
+
+  USB OTG FS / CDC
+    PA11 = D-
+    PA12 = D+
+
+  Debug SWD
+    PA13 = SWDIO
+    PA14 = SWCLK
+
+  HSE
+    PH0 = OSC_IN
+    PH1 = OSC_OUT
+
+8. PIN YANG TIDAK DIPAKAI DALAM PLAN B INI
+
+  PA8  (DE lama, tidak dipakai - modul RS485 auto-direction)
+  PC8, PC9, PC10, PC11, PC12, PD2 (SDIO lama, tidak dipakai di Plan B)
+  PA2, PA3 (USART2, belum dipakai di Plan B ini)
+  PB12, PB13, PB14, PB15 (jalur SD SPI pada skematik referensi DevEBox
+    generik; tidak dipakai di PCB proyek ini karena SD dikabel ke pin
+    remap PA0/PB10/PC2/PC3)
+
+9. HASIL PENGECEKAN KONFLIK
+
+  Tidak ada konflik pin pada peta Plan B di atas:
+    - SPI1 (PA5/PA6/PA7/PA4/PC1) terpisah penuh dari SPI3 (PB3/PB4/PB5/PA15).
+    - SPI2 (PA0/PB10/PC2/PC3) terpisah penuh dari SPI1 dan SPI3.
+    - USART1, USART3, I2C1, USB, SWD, HSE semuanya pada pin yang berbeda.
+
+10. CATATAN
+
+  - Driver SD pada SPI2 harus memakai clock lambat saat inisialisasi
+    kartu, lalu dapat menaikkan clock setelah kartu masuk mode transfer.
+  - Karena flash (SPI3) dan SD (SPI2) sekarang memakai peripheral SPI
+    yang berbeda, keduanya bisa diakses tanpa perlu menjaga giliran
+    seperti pada Plan A (yang berbagi satu bus SPI3 untuk SD dan flash).
+  - Jika PCB Anda ternyata memakai varian DevEBox lain dengan pin flash
+    berbeda, sesuaikan bagian 3 di atas dengan skematik modul yang
+    sebenarnya terpasang.

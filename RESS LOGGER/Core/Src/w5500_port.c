@@ -61,17 +61,8 @@ void W5500_Port_Init(void)
     s_ctx[W5500_LAN].int_port = NULL;
     s_ctx[W5500_LAN].int_pin  = 0;
 
-    s_ctx[W5500_WAN].hspi     = &hspi2;
-    s_ctx[W5500_WAN].cs_port  = W5500_2_CS_GPIO_Port;
-    s_ctx[W5500_WAN].cs_pin   = W5500_2_CS_Pin;
-    s_ctx[W5500_WAN].rst_port = W5500_2_RST_GPIO_Port;
-    s_ctx[W5500_WAN].rst_pin  = W5500_2_RST_Pin;
-    s_ctx[W5500_WAN].int_port = W5500_2_INT_GPIO_Port;
-    s_ctx[W5500_WAN].int_pin  = W5500_2_INT_Pin;
-
-    /* Both CS lines idle high until a transfer selects one. */
+    /* CS idles high until a transfer selects it. */
     HAL_GPIO_WritePin(s_ctx[W5500_LAN].cs_port, s_ctx[W5500_LAN].cs_pin, GPIO_PIN_SET);
-    HAL_GPIO_WritePin(s_ctx[W5500_WAN].cs_port, s_ctx[W5500_WAN].cs_pin, GPIO_PIN_SET);
 
     /* Registered once; the callbacks always act on whichever instance
      * W5500_Select() last pointed s_current at. */

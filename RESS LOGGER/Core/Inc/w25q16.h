@@ -1,9 +1,7 @@
 /**
   * @file    w25q16.h
   * @brief   Driver for Winbond W25Q-family SPI NOR flash (Devebox onboard
-  *          W25Q16, 2MB) on shared SPI3 bus (CS=PA15/FLASH_CS). SPI3 is
-  *          also used by W5500 #2 (CS=PD4) -- callers on that bus must not
-  *          assert this device's CS while another device's CS is asserted.
+  *          W25Q16, 2MB) on its own dedicated SPI3 bus (CS=PA15/FLASH_CS).
   *
   *          Command set, page size (256B) and sector size (4KB) are the
   *          same across the W25Q family (W25Q16/32/64/128/...), and 3-byte

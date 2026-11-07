@@ -55,8 +55,15 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/usb_cdc_stdio.c
     Core/Src/at_console.c
     Core/Src/w25q16.c
+    Core/Src/sd_spi.c
     Core/Src/w5500_port.c
     Core/Src/w5500_app.c
+    Core/Src/ress_util.c
+    Core/Src/modbus_master.c
+    Core/Src/power_meter.c
+    Core/Src/datalogger.c
+    Core/Src/esp_bridge.c
+    Core/Src/ress_app.c
     Drivers/W5500/ioLibrary_Driver/Ethernet/W5500/w5500.c
     Drivers/W5500/ioLibrary_Driver/Ethernet/socket.c
     Drivers/W5500/ioLibrary_Driver/Ethernet/wizchip_conf.c

@@ -53,6 +53,17 @@ void MX_USART1_UART_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN USART1_Init 2 */
+  /* RS485 power meter: 9600 bps, 8 data bits + even parity (E81).
+   * On STM32 the parity bit counts inside the word length, so 8E1 needs
+   * UART_WORDLENGTH_9B. Kept here so CubeMX regeneration does not undo it. */
+  huart1.Init.BaudRate = 9600;
+  huart1.Init.WordLength = UART_WORDLENGTH_9B;
+  huart1.Init.StopBits = UART_STOPBITS_1;
+  huart1.Init.Parity = UART_PARITY_EVEN;
+  if (HAL_UART_Init(&huart1) != HAL_OK)
+  {
+    Error_Handler();
+  }
 
   /* USER CODE END USART1_Init 2 */
 

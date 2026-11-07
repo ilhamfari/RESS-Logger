@@ -22,6 +22,45 @@
 
 /* USER CODE BEGIN 0 */
 
+/* On a cold power-up a device sharing the I2C1 bus (EEPROM mid-write, RTC,
+ * or the isolator's secondary side) can leave SDA held low mid-transaction.
+ * The STM32 I2C peripheral then sees the bus as permanently busy and every
+ * subsequent transfer silently fails -- indistinguishable from "nothing on
+ * the bus" from HAL_I2C_IsDeviceReady()'s point of view. Bit-bang a classic
+ * recovery sequence (clock SCL until SDA is released, then issue a STOP)
+ * before the peripheral's AF pins are configured. */
+static void I2C1_BusRecover(void)
+{
+    GPIO_InitTypeDef gpio = {0};
+
+    __HAL_RCC_GPIOB_CLK_ENABLE();
+
+    gpio.Pin = GPIO_PIN_6 | GPIO_PIN_7; /* SCL, SDA */
+    gpio.Mode = GPIO_MODE_OUTPUT_OD;
+    gpio.Pull = GPIO_NOPULL;
+    gpio.Speed = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(GPIOB, &gpio);
+
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_6 | GPIO_PIN_7, GPIO_PIN_SET); /* release both */
+    HAL_Delay(1);
+
+    for (uint8_t i = 0; i < 9U && HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_7) == GPIO_PIN_RESET; i++)
+    {
+        HAL_GPIO_WritePin(GPIOB, GPIO_PIN_6, GPIO_PIN_RESET);
+        HAL_Delay(1);
+        HAL_GPIO_WritePin(GPIOB, GPIO_PIN_6, GPIO_PIN_SET);
+        HAL_Delay(1);
+    }
+
+    /* STOP condition: SDA low-to-high while SCL is high. */
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_7, GPIO_PIN_RESET);
+    HAL_Delay(1);
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_6, GPIO_PIN_SET);
+    HAL_Delay(1);
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_7, GPIO_PIN_SET);
+    HAL_Delay(1);
+}
+
 /* USER CODE END 0 */
 
 I2C_HandleTypeDef hi2c1;
@@ -63,7 +102,7 @@ void HAL_I2C_MspInit(I2C_HandleTypeDef* i2cHandle)
   if(i2cHandle->Instance==I2C1)
   {
   /* USER CODE BEGIN I2C1_MspInit 0 */
-
+    I2C1_BusRecover();
   /* USER CODE END I2C1_MspInit 0 */
 
     __HAL_RCC_GPIOB_CLK_ENABLE();

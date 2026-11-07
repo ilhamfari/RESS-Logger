@@ -5,11 +5,11 @@
 #include "ds3231.h"
 #include "at24c256.h"
 #include "fatfs.h"
-#include "bsp_driver_sd.h"
-#include "sdio.h"
+#include "sd_spi.h"
 #include "spi.h"
 #include "w25q16.h"
 #include "w5500_port.h"
+#include "ress_app.h"
 #include <string.h>
 #include <stdio.h>
 #include <ctype.h>
@@ -94,45 +94,29 @@ static void Print_I2CScan(void)
 
 static void Print_SDCheck(void)
 {
-    printf("SD card:\r\n");
+    printf("SD card (SPI2):\r\n");
 
-    HAL_IWDG_Refresh(&hiwdg); /* SDIO card init can take a while on its own */
+    HAL_IWDG_Refresh(&hiwdg); /* card identification can take a while on its own */
 
-    /* Call BSP_SD_Init() directly first (rather than only through
-     * f_mount -> disk_initialize) so a failure can be pinned to the
-     * exact HAL_SD error code instead of just "mount failed". */
-    /* HAL_SD_Init() only clears hsd.ErrorCode *after* a successful init
-     * (see stm32f4xx_hal_sd.c), so a prior failed attempt leaves stale
-     * bits that get OR'd into the next one, making the printed code
-     * look like two unrelated errors at once. Force a clean slate. */
-    HAL_SD_DeInit(&hsd);
-    hsd.ErrorCode = HAL_SD_ERROR_NONE;
-    hsd.State = HAL_SD_STATE_RESET;
-
-    uint8_t sd_state = BSP_SD_Init();
-    if (sd_state != MSD_OK)
+    if (!SD_SPI_Init())
     {
-        uint32_t err = HAL_SD_GetError(&hsd);
-        printf("  BSP_SD_Init FAILED (HAL_SD error=0x%08lX, HAL state=%d)\r\n",
-               (unsigned long)err, (int)HAL_SD_GetState(&hsd));
-        printf("  -> check card is seated, contacts are clean, and it's FAT32\r\n");
+        printf("  SD_SPI_Init FAILED -- no card responding\r\n");
+        printf("  -> check card is seated, contacts are clean, and SD_CS/SPI2 wiring\r\n");
         return;
     }
 
     HAL_IWDG_Refresh(&hiwdg); /* f_mount can also take a while on a slow card */
 
-    FRESULT fr = f_mount(&SDFatFS, SDPath, 1);
+    FRESULT fr = f_mount(&USERFatFS, USERPath, 1);
     if (fr != FR_OK)
     {
-        printf("  BSP init OK but f_mount FAILED (FRESULT=%d) -- check filesystem/format\r\n", (int)fr);
+        printf("  card init OK but f_mount FAILED (FRESULT=%d) -- check filesystem/format (FAT32)\r\n", (int)fr);
         return;
     }
 
     HAL_IWDG_Refresh(&hiwdg);
 
-    HAL_SD_CardInfoTypeDef card_info;
-    BSP_SD_GetCardInfo(&card_info);
-    uint32_t capacity_mb = (uint32_t)(((uint64_t)card_info.LogBlockNbr * card_info.LogBlockSize) / (1024U * 1024U));
+    uint32_t capacity_mb = (uint32_t)(((uint64_t)SD_SPI_GetSectorCount() * SD_SPI_BLOCK_SIZE) / (1024U * 1024U));
 
     printf("  mounted OK, capacity ~%lu MB\r\n", (unsigned long)capacity_mb);
 }
@@ -207,8 +191,7 @@ static void Print_W5500Check_One(const char *label, W5500_Instance_t inst)
 static void Print_W5500Check(void)
 {
     printf("W5500 Ethernet:\r\n");
-    Print_W5500Check_One("LAN (#1, SPI1)", W5500_LAN);
-    Print_W5500Check_One("WAN (#2, SPI2)", W5500_WAN);
+    Print_W5500Check_One("LAN (SPI1)", W5500_LAN);
 }
 
 static volatile bool s_heartbeat_enabled = true;
@@ -237,7 +220,7 @@ static void Cmd_Help(void)
 {
     printf("Commands:\r\n");
     printf("  AT     -- toggle the 1Hz sensor heartbeat print ON/OFF\r\n");
-    printf("  CHECK  -- scan I2C1 bus + RTC + SD card + W25Q16 flash + W5500 x2\r\n");
+    printf("  CHECK  -- scan I2C1 bus + RTC + SD card + W25Q16 flash + W5500\r\n");
     printf("  HELP   -- this message\r\n");
 }
 
@@ -270,6 +253,38 @@ static void Dispatch(char *line)
     else if (strcmp(line, "CHECK") == 0)
     {
         Cmd_Check();
+    }
+    else if (strcmp(line, "METER") == 0)
+    {
+        RESS_App_PrintMeter();
+    }
+    else if (strcmp(line, "LOG") == 0)
+    {
+        RESS_App_LogNow();
+    }
+    else if (strncmp(line, "LOGINT", 6) == 0)
+    {
+        unsigned minutes = 0;
+        if (sscanf(line + 6, "%u", &minutes) == 1)
+        {
+            RESS_App_SetLogInterval((uint32_t)minutes);
+        }
+        else
+        {
+            printf("ERROR: usage: LOGINT <minutes>\r\n");
+        }
+    }
+    else if (strncmp(line, "SETTIME", 7) == 0)
+    {
+        unsigned y, mo, d, h, mi, s;
+        if (sscanf(line + 7, "%u-%u-%u %u:%u:%u", &y, &mo, &d, &h, &mi, &s) == 6)
+        {
+            (void)RESS_App_SetTime((uint16_t)y, (uint8_t)mo, (uint8_t)d, (uint8_t)h, (uint8_t)mi, (uint8_t)s);
+        }
+        else
+        {
+            printf("ERROR: usage: SETTIME YYYY-MM-DD HH:MM:SS\r\n");
+        }
     }
     else if ((strcmp(line, "HELP") == 0) || (strcmp(line, "?") == 0))
     {

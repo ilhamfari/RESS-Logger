@@ -59,19 +59,20 @@ void Error_Handler(void);
 /* Private defines -----------------------------------------------------------*/
 #define W5500_1_RST_Pin GPIO_PIN_1
 #define W5500_1_RST_GPIO_Port GPIOC
+#define SD_CS_Pin GPIO_PIN_0
+#define SD_CS_GPIO_Port GPIOA
 #define W5500_1_CS_Pin GPIO_PIN_4
 #define W5500_1_CS_GPIO_Port GPIOA
-#define RS485_DE_Pin GPIO_PIN_8
-#define RS485_DE_GPIO_Port GPIOA
+#define RELAY1_Pin GPIO_PIN_7
+#define RELAY1_GPIO_Port GPIOE
+#define RELAY2_Pin GPIO_PIN_8
+#define RELAY2_GPIO_Port GPIOE
+#define RELAY3_Pin GPIO_PIN_9
+#define RELAY3_GPIO_Port GPIOE
+#define RELAY4_Pin GPIO_PIN_10
+#define RELAY4_GPIO_Port GPIOE
 #define FLASH_CS_Pin GPIO_PIN_15
 #define FLASH_CS_GPIO_Port GPIOA
-#define W5500_2_CS_Pin GPIO_PIN_4
-#define W5500_2_CS_GPIO_Port GPIOD
-#define W5500_2_INT_Pin GPIO_PIN_5
-#define W5500_2_INT_GPIO_Port GPIOD
-#define W5500_2_INT_EXTI_IRQn EXTI9_5_IRQn
-#define W5500_2_RST_Pin GPIO_PIN_6
-#define W5500_2_RST_GPIO_Port GPIOD
 
 /* USER CODE BEGIN Private defines */
 

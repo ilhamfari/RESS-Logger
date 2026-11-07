@@ -32,13 +32,11 @@ target_sources(stm32cubemx INTERFACE
     ../../Core/Src/gpio.c
     ../../Core/Src/i2c.c
     ../../Core/Src/iwdg.c
-    ../../Core/Src/sdio.c
     ../../Core/Src/spi.c
     ../../Core/Src/usart.c
     ../../Core/Src/stm32f4xx_it.c
     ../../Core/Src/stm32f4xx_hal_msp.c
-    ../../FATFS/Target/bsp_driver_sd.c
-    ../../FATFS/Target/sd_diskio.c
+    ../../FATFS/Target/user_diskio.c
     ../../FATFS/App/fatfs.c
     ../../USB_DEVICE/App/usb_device.c
     ../../USB_DEVICE/App/usbd_desc.c
@@ -63,9 +61,6 @@ target_sources(stm32cubemx INTERFACE
     ../../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_i2c.c
     ../../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_i2c_ex.c
     ../../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_iwdg.c
-    ../../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_ll_sdmmc.c
-    ../../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_sd.c
-    ../../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_mmc.c
     ../../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_spi.c
     ../../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_uart.c
     ../../Core/Src/system_stm32f4xx.c
