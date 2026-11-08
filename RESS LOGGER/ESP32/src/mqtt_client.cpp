@@ -243,24 +243,7 @@ bool MQTTManager::publishTelemetry(const TelemetrySnapshot &snap, uint32_t epoch
     // Helper to add batch item
     BatchAdder addItem(batch);
 
-    // 1. Larkin Meter (meter1)
-    if (snap.larkin.online) {
-        addItem("meter1", "voltage", snap.larkin.ua);
-        addItem("meter1", "current", snap.larkin.ia);
-        addItem("meter1", "grid_power", snap.larkin.p_total);
-        addItem("meter1", "reactive_power", snap.larkin.q_total);
-        addItem("meter1", "apparent_power", snap.larkin.s_total);
-        addItem("meter1", "power_factor", snap.larkin.pf_avg);
-        addItem("meter1", "frequency", snap.larkin.freq);
-        if (snap.larkin.has_e_imp) {
-            addItem("meter1", "energy_import_total", snap.larkin.e_imp);
-        }
-        if (snap.larkin.has_e_exp) {
-            addItem("meter1", "energy_export_total", snap.larkin.e_exp);
-        }
-    }
-
-    // 2. GoodWe Inverter (inv_goodwe_atap)
+    // GoodWe is the only Modbus device published by this gateway.
     if (snap.goodwe.online) {
         if (snap.goodwe.has_vpv)    addItem("inv_goodwe_atap", "pv_voltage", snap.goodwe.vpv);
         if (snap.goodwe.has_ipv)    addItem("inv_goodwe_atap", "pv_current", snap.goodwe.ipv);
@@ -272,19 +255,7 @@ bool MQTTManager::publishTelemetry(const TelemetrySnapshot &snap, uint32_t epoch
         if (snap.goodwe.has_temp)   addItem("inv_goodwe_atap", "temp_internal", snap.goodwe.temp);
     }
 
-    // 3. Sungrow Inverter (inv_sungrow)
-    if (snap.sungrow.online) {
-        if (snap.sungrow.has_vpv)    addItem("inv_sungrow", "pv_voltage", snap.sungrow.vpv);
-        if (snap.sungrow.has_ipv)    addItem("inv_sungrow", "pv_current", snap.sungrow.ipv);
-        if (snap.sungrow.has_ppv)    addItem("inv_sungrow", "pv_power", snap.sungrow.ppv);
-        if (snap.sungrow.has_energy) addItem("inv_sungrow", "pv_energy_total", snap.sungrow.energy_kwh);
-        if (snap.sungrow.has_pout)   addItem("inv_sungrow", "inv_power_out", snap.sungrow.pout);
-        if (snap.sungrow.has_pload)  addItem("inv_sungrow", "load_power", snap.sungrow.pload);
-        if (snap.sungrow.has_status) addItem("inv_sungrow", "inv_status", snap.sungrow.status);
-        if (snap.sungrow.has_temp)   addItem("inv_sungrow", "temp_internal", snap.sungrow.temp);
-    }
-
-    // 4. Board Health (gw)
+    // Board health
     addItem("gw", "rssi", WiFi.RSSI());
     addItem("gw", "uptime", (uint32_t)(millis() / 1000));
     addItem("gw", "fw_version", FIRMWARE_VERSION);

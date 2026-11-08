@@ -69,6 +69,7 @@ typedef struct ModbusDevice_s
     ModbusFormat_t     format;
     uint32_t           poll_interval_ms;
     uint32_t           offline_retry_ms; /* poll period while offline (0 = same) */
+    bool               enabled;          /* disabled devices consume no bus time */
     uint32_t           last_poll_tick;
     bool               is_online;
     ModbusPollFn_t     poll;

@@ -60,6 +60,7 @@ public:
     static bool requestTelemetry(uint32_t scheduled_epoch);
     static bool sendAckTelemetry(uint32_t seq, bool success);
     static bool sendRelayCommand(uint8_t channel, uint8_t state);
+    static bool sendGoodWeEnable(bool enabled);
     static bool sendTimeSync(uint16_t year, uint8_t month, uint8_t date,
                              uint8_t hour, uint8_t minute, uint8_t second, uint32_t epoch);
 

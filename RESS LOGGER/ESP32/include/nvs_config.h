@@ -13,6 +13,7 @@ struct SystemConfig {
     char mqtt_pass[64];
 
     uint16_t send_interval_min;
+    bool goodwe_enabled;
 
     char topic_telemetry[128];
     char topic_status[128];

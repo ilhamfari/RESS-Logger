@@ -193,6 +193,19 @@ static void HandleFrame(char *line)
         snprintf(ack, sizeof(ack), "ACK,RELAY,%d,%d", ch, result);
         SendFrame(ack);
     }
+    else if (strcmp(tok[0], "CMD") == 0 && nt >= 3U && strcmp(tok[1], "GOODWE") == 0)
+    {
+        bool value_ok = (strcmp(tok[2], "0") == 0) || (strcmp(tok[2], "1") == 0);
+        if (!value_ok || s_h.on_cmd_goodwe == NULL)
+        {
+            SendFrame("ERR,GOODWE,INVALID");
+            return;
+        }
+
+        bool enabled = (tok[2][0] == '1');
+        s_h.on_cmd_goodwe(enabled);
+        SendFrame(enabled ? "ACK,GOODWE,1" : "ACK,GOODWE,0");
+    }
     else if (strcmp(tok[0], "CMD") == 0 && nt >= 8U && strcmp(tok[1], "TIME") == 0)
     {
         uint16_t year = (uint16_t)atoi(tok[2]);
@@ -291,18 +304,6 @@ bool ESP_Bridge_SendSnapshot(const RessSnapshot_t *s)
         return false;
     }
 
-    /* Larkin power meter */
-    if (s->meter_online && s->meter.valid)
-    {
-        PowerMeter_FormatSentence(fields, sizeof(fields), &s->meter);
-        snprintf(payload, sizeof(payload), "DATA,LARKIN,%lu,%s", (unsigned long)s->seq, fields);
-    }
-    else
-    {
-        snprintf(payload, sizeof(payload), "DATA,LARKIN,%lu,NA", (unsigned long)s->seq);
-    }
-    ok &= SendFrame(payload);
-
     /* GoodWe */
     if (s->goodwe.online)
     {
@@ -312,18 +313,6 @@ bool ESP_Bridge_SendSnapshot(const RessSnapshot_t *s)
     else
     {
         snprintf(payload, sizeof(payload), "DATA,GOODWE,%lu,NA", (unsigned long)s->seq);
-    }
-    ok &= SendFrame(payload);
-
-    /* Sungrow */
-    if (s->sungrow.online)
-    {
-        Inverter_FormatFields(fields, sizeof(fields), &s->sungrow);
-        snprintf(payload, sizeof(payload), "DATA,SUNGROW,%lu,%s", (unsigned long)s->seq, fields);
-    }
-    else
-    {
-        snprintf(payload, sizeof(payload), "DATA,SUNGROW,%lu,NA", (unsigned long)s->seq);
     }
     ok &= SendFrame(payload);
 

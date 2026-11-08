@@ -72,10 +72,10 @@ void DisplayStatus::process() {
     }
 
     const TelemetrySnapshot &snap = STM32UARTBridge::getLatestSnapshot();
-    snprintf(lines[4], sizeof(lines[4]), "MODBUS DEVICES");
-    snprintf(lines[5], sizeof(lines[5]), "PM= %s", snap.complete ? (snap.larkin.online ? "ONLINE" : "OFFLINE") : "WAIT");
-    snprintf(lines[6], sizeof(lines[6]), "GW= %s", snap.complete ? (snap.goodwe.online ? "ONLINE" : "OFFLINE") : "WAIT");
-    snprintf(lines[7], sizeof(lines[7]), "SG= %s", snap.complete ? (snap.sungrow.online ? "ONLINE" : "OFFLINE") : "WAIT");
+    snprintf(lines[4], sizeof(lines[4]), "GOODWE MODBUS");
+    snprintf(lines[5], sizeof(lines[5]), "GW %s", snap.complete ? (snap.goodwe.online ? "ONLINE" : "OFFLINE") : "WAIT");
+    snprintf(lines[6], sizeof(lines[6]), "Pout %.0f W", snap.goodwe.has_pout ? snap.goodwe.pout : 0.0f);
+    snprintf(lines[7], sizeof(lines[7]), "Energy %.1f kWh", snap.goodwe.has_energy ? snap.goodwe.energy_kwh : 0.0f);
 
     s_display.clearDisplay();
     s_display.setCursor(0, 0);

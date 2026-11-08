@@ -8,12 +8,8 @@
 
 #define CSV_HEADER \
     "timestamp,seq," \
-    "ua,ub,uc,uab,ubc,uca,ia,ib,ic,pa,pb,pc,p_total,qa,qb,qc,q_total,sa,sb,sc,s_total,pf1,pf2,pf3,pf_avg,freq," \
     "gw_vpv,gw_ipv,gw_ppv,gw_e_total,gw_p_out,gw_p_load,gw_status,gw_temp," \
-    "sg_vpv,sg_ipv,sg_ppv,sg_e_total,sg_p_out,sg_p_load,sg_status,sg_temp," \
     "r1,r2,r3,r4,sent\r\n"
-
-#define METER_FIELD_COUNT 26U
 
 typedef struct
 {
@@ -39,7 +35,7 @@ void DataLogger_Init(void)
     s_rows_written = 0;
     s_rows_sent = 0;
     memset(s_pending, 0, sizeof(s_pending));
-    RESS_LOG("LOGGER", "init: one row per $REQ,TELE from ESP32, dir=%sLOGS, file=YYYYMMDD.CSV", USERPath);
+    RESS_LOG("LOGGER", "init: GoodWe-only CSV, dir=%sGWLOGS, file=YYYYMMDD.CSV", USERPath);
 }
 
 void DataLogger_UpdateFatTime(const DS3231_Time_t *now)
@@ -96,18 +92,6 @@ static bool EnsureMounted(void)
     return true;
 }
 
-static void AppendNaFields(char *buf, size_t size, size_t *pos, size_t count)
-{
-    for (size_t i = 0; i < count; i++)
-    {
-        int n = snprintf(&buf[*pos], size - *pos, i == 0U ? "NA" : ",NA");
-        if (n > 0)
-        {
-            *pos += (size_t)n;
-        }
-    }
-}
-
 /* Builds the CSV row; returns length, sets *flag_idx to the SENT char index. */
 static int BuildRow(char *row, size_t size, const RessSnapshot_t *s, size_t *flag_idx)
 {
@@ -125,29 +109,8 @@ static int BuildRow(char *row, size_t size, const RessSnapshot_t *s, size_t *fla
     }
     pos = (size_t)n;
 
-    if (s->meter_online && s->meter.valid)
-    {
-        PowerMeter_FormatFields(fields, sizeof(fields), &s->meter);
-        n = snprintf(&row[pos], size - pos, "%s", fields);
-        if (n > 0)
-        {
-            pos += (size_t)n;
-        }
-    }
-    else
-    {
-        AppendNaFields(row, size, &pos, METER_FIELD_COUNT);
-    }
-
     Inverter_FormatFields(fields, sizeof(fields), &s->goodwe);
-    n = snprintf(&row[pos], size - pos, ",%s", fields);
-    if (n > 0)
-    {
-        pos += (size_t)n;
-    }
-
-    Inverter_FormatFields(fields, sizeof(fields), &s->sungrow);
-    n = snprintf(&row[pos], size - pos, ",%s", fields);
+    n = snprintf(&row[pos], size - pos, "%s", fields);
     if (n > 0)
     {
         pos += (size_t)n;
@@ -194,8 +157,8 @@ static bool WriteRow(const RessSnapshot_t *s)
     size_t flag_idx = 0;
     FRESULT fr;
 
-    snprintf(dir, sizeof(dir), "%sLOGS", USERPath);
-    snprintf(path, sizeof(path), "%sLOGS/%04u%02u%02u.CSV", USERPath, (unsigned)s->time.year,
+    snprintf(dir, sizeof(dir), "%sGWLOGS", USERPath);
+    snprintf(path, sizeof(path), "%sGWLOGS/%04u%02u%02u.CSV", USERPath, (unsigned)s->time.year,
              (unsigned)s->time.month, (unsigned)s->time.date);
 
     int n = BuildRow(row, sizeof(row), s, &flag_idx);

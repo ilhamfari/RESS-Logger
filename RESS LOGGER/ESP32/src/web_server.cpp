@@ -10,6 +10,7 @@
 static WebServer s_server(80);
 static SystemConfig *s_pcfg = nullptr;
 static WebRelayToggleCallback s_relay_cb = nullptr;
+static WebGoodWeToggleCallback s_goodwe_cb = nullptr;
 
 static const char CSS_COMMON[] PROGMEM =
     "body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;margin:0;padding:20px;background:#f0f2f5;color:#2d3748;}"
@@ -91,6 +92,7 @@ input:disabled + .slider{opacity:0.5;cursor:not-allowed;}
   <tr><td>Device IP Address</td><td id='val-ip'>-</td></tr>
   <tr><td>MQTT Broker</td><td id='val-mqtt-srv'>-</td></tr>
   <tr><td>MQTT Connection</td><td><span id='val-mqtt' class='badge-off'>CHECKING...</span></td></tr>
+  <tr><td>GoodWe Acquisition</td><td><label class='switch'><input type='checkbox' id='goodwe-switch' onchange='toggleGoodWe(this.checked)'><span class='slider'></span></label> <span id='goodwe-enabled-label' class='badge-off'>OFF</span></td></tr>
      <tr>
     <td>NTP Clock Time</td>
     <td>
@@ -136,19 +138,9 @@ input:disabled + .slider{opacity:0.5;cursor:not-allowed;}
 <table>
   <tr><th style='width:25%;'>Device</th><th style='width:15%;'>Status</th><th>Key Metrics</th></tr>
   <tr>
-    <td>Power Meter (Larkin)</td>
-    <td id='larkin-status'><span class='badge-off'>OFFLINE</span></td>
-    <td id='larkin-metrics'>Waiting for data...</td>
-  </tr>
-  <tr>
     <td>GoodWe Inverter</td>
     <td id='goodwe-status'><span class='badge-off'>OFFLINE</span></td>
     <td id='goodwe-metrics'>Waiting for data...</td>
-  </tr>
-  <tr>
-    <td>Sungrow Inverter</td>
-    <td id='sungrow-status'><span class='badge-off'>OFFLINE</span></td>
-    <td id='sungrow-metrics'>Waiting for data...</td>
   </tr>
 </table>
 
@@ -177,6 +169,26 @@ function toggleRelay(ch, state) {
     sw.disabled = false;
     sw.checked = !state;
     alert('Failed to send relay command');
+  });
+}
+
+function toggleGoodWe(enabled) {
+  var sw = document.getElementById('goodwe-switch');
+  sw.disabled = true;
+  fetch('/goodwe?ajax=1', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: 'enabled=' + (enabled ? 1 : 0)
+  })
+  .then(function(r) {
+    if (!r.ok) throw new Error('GoodWe toggle failed');
+    sw.disabled = false;
+    updateDashboard();
+  })
+  .catch(function() {
+    sw.disabled = false;
+    sw.checked = !enabled;
+    alert('Failed to change GoodWe acquisition');
   });
 }
 
@@ -211,6 +223,13 @@ function updateDashboard() {
       }
       document.getElementById('val-ntp').textContent = d.sys.ntp;
       document.getElementById('val-seq').textContent = d.sys.seq;
+      var gwSw = document.getElementById('goodwe-switch');
+      var gwEnableLabel = document.getElementById('goodwe-enabled-label');
+      if (gwSw && !gwSw.disabled) gwSw.checked = d.sys.goodwe_enabled;
+      if (gwEnableLabel) {
+        gwEnableLabel.textContent = d.sys.goodwe_enabled ? 'ON' : 'OFF';
+        gwEnableLabel.className = d.sys.goodwe_enabled ? 'badge-on' : 'badge-off';
+      }
 
       for (var i = 1; i <= 4; i++) {
         var rVal = d.relays['r' + i];
@@ -223,19 +242,6 @@ function updateDashboard() {
           lbl.textContent = (rVal == 1) ? 'ON' : 'OFF';
           lbl.className = (rVal == 1) ? 'badge-on' : 'badge-off';
         }
-      }
-
-      var lkStat = document.getElementById('larkin-status');
-      var lkMet = document.getElementById('larkin-metrics');
-      if (d.larkin.online) {
-        lkStat.innerHTML = "<span class='badge-on'>ONLINE</span>";
-        var s = 'U=' + d.larkin.ua.toFixed(1) + ' V, I=' + d.larkin.ia.toFixed(2) + ' A, P=' + d.larkin.p.toFixed(1) + ' W, Q=' + d.larkin.q.toFixed(1) + ' var, S=' + d.larkin.s.toFixed(1) + ' VA, PF=' + d.larkin.pf.toFixed(2) + ', Freq=' + d.larkin.freq.toFixed(2) + ' Hz';
-        if (d.larkin.has_e_imp) s += ', E_Imp=' + d.larkin.e_imp.toFixed(2) + ' kWh';
-        if (d.larkin.has_e_exp) s += ', E_Exp=' + d.larkin.e_exp.toFixed(2) + ' kWh';
-        lkMet.textContent = s;
-      } else {
-        lkStat.innerHTML = "<span class='badge-off'>OFFLINE</span>";
-        lkMet.textContent = 'No data received';
       }
 
       var gwStat = document.getElementById('goodwe-status');
@@ -255,25 +261,6 @@ function updateDashboard() {
       } else {
         gwStat.innerHTML = "<span class='badge-off'>OFFLINE</span>";
         gwMet.textContent = 'No data received';
-      }
-
-      var sgStat = document.getElementById('sungrow-status');
-      var sgMet = document.getElementById('sungrow-metrics');
-      if (d.sungrow.online) {
-        sgStat.innerHTML = "<span class='badge-on'>ONLINE</span>";
-        var sg = '';
-        if (d.sungrow.has_vpv) sg += 'Vpv=' + d.sungrow.vpv.toFixed(1) + ' V, ';
-        if (d.sungrow.has_ipv) sg += 'Ipv=' + d.sungrow.ipv.toFixed(2) + ' A, ';
-        if (d.sungrow.has_ppv) sg += 'Ppv=' + d.sungrow.ppv.toFixed(0) + ' W, ';
-        if (d.sungrow.has_energy) sg += 'Energy=' + d.sungrow.energy.toFixed(1) + ' kWh, ';
-        if (d.sungrow.has_pout) sg += 'Pout=' + d.sungrow.pout.toFixed(0) + ' W, ';
-        if (d.sungrow.has_pload) sg += 'Pload=' + d.sungrow.pload.toFixed(0) + ' W, ';
-        if (d.sungrow.has_temp) sg += 'Temp=' + d.sungrow.temp.toFixed(1) + ' C, ';
-        if (d.sungrow.has_status) sg += 'Status=' + d.sungrow.status;
-        sgMet.textContent = sg;
-      } else {
-        sgStat.innerHTML = "<span class='badge-off'>OFFLINE</span>";
-        sgMet.textContent = 'No data received';
       }
 
       var dot = document.getElementById('live-dot');
@@ -344,6 +331,10 @@ void WebServerManager::setOnRelayToggle(WebRelayToggleCallback cb) {
     s_relay_cb = cb;
 }
 
+void WebServerManager::setOnGoodWeToggle(WebGoodWeToggleCallback cb) {
+    s_goodwe_cb = cb;
+}
+
 void WebServerManager::init(SystemConfig &cfg) {
     s_pcfg = &cfg;
 
@@ -351,6 +342,7 @@ void WebServerManager::init(SystemConfig &cfg) {
     s_server.on("/settings", HTTP_GET, handleSettings);
     s_server.on("/settings", HTTP_POST, handleSaveSettings);
     s_server.on("/relay", HTTP_POST, handleRelayToggle);
+    s_server.on("/goodwe", HTTP_POST, handleGoodWeToggle);
     s_server.on("/restart", HTTP_POST, handleRestart);
     s_server.on("/api/status", HTTP_GET, handleApiStatus);
     s_server.on("/api/wifi-scan", HTTP_GET, handleWifiScan);
@@ -443,6 +435,9 @@ void WebServerManager::handleSettings() {
 
     // Intervals & Topics
     html += "<h2>Transmission & Topics</h2>";
+    html += "<div class='form-group'><label>GoodWe Modbus Acquisition</label><label class='switch'><input type='checkbox' name='goodwe_enabled' value='1'";
+    if (s_pcfg->goodwe_enabled) html += " checked";
+    html += "><span class='slider'></span></label><div style='font-size:12px;color:#718096;margin-top:6px;'>When disabled, Modbus polling, CSV rows, and MQTT telemetry stop.</div></div>";
     html += "<div class='form-group'><label>Telemetry Send Interval (Minutes)</label><input type='number' name='send_interval' min='1' max='60' value='" + String(s_pcfg->send_interval_min) + "' required></div>";
     html += "<div class='form-group'><label>Telemetry Topic</label><input type='text' name='topic_telemetry' value='" + String(s_pcfg->topic_telemetry) + "'></div>";
     html += "<div class='form-group'><label>Status / LWT Topic</label><input type='text' name='topic_status' value='" + String(s_pcfg->topic_status) + "'></div>";
@@ -567,6 +562,7 @@ void WebServerManager::handleSaveSettings() {
         s_pcfg->send_interval_min = (uint16_t)s_server.arg("send_interval").toInt();
         if (s_pcfg->send_interval_min == 0) s_pcfg->send_interval_min = 1;
     }
+    s_pcfg->goodwe_enabled = s_server.hasArg("goodwe_enabled");
     if (s_server.hasArg("topic_telemetry")) {
         strlcpy(s_pcfg->topic_telemetry, s_server.arg("topic_telemetry").c_str(), sizeof(s_pcfg->topic_telemetry));
     }
@@ -607,6 +603,22 @@ void WebServerManager::handleRelayToggle() {
     }
 }
 
+void WebServerManager::handleGoodWeToggle() {
+    bool ok = false;
+    if (s_server.hasArg("enabled") && s_pcfg) {
+        String value = s_server.arg("enabled");
+        if (value == "0" || value == "1") {
+            bool enabled = (value == "1");
+            s_pcfg->goodwe_enabled = enabled;
+            NVSConfigManager::saveConfig(*s_pcfg);
+            if (s_goodwe_cb) s_goodwe_cb(enabled);
+            ok = true;
+        }
+    }
+    s_server.send(ok ? 200 : 400, "application/json",
+                  ok ? "{\"status\":\"ok\"}" : "{\"error\":\"invalid params\"}");
+}
+
 void WebServerManager::handleApiStatus() {
     const TelemetrySnapshot &snap = STM32UARTBridge::getLatestSnapshot();
     const RelayState &relays = STM32UARTBridge::getLatestRelay();
@@ -630,6 +642,7 @@ void WebServerManager::handleApiStatus() {
     }
     sys["ntp"] = NTPTimeManager::getFormattedTime();
     sys["seq"] = snap.seq;
+    sys["goodwe_enabled"] = s_pcfg ? s_pcfg->goodwe_enabled : false;
 
     // Relays
     JsonObject rel = doc["relays"].to<JsonObject>();
@@ -638,25 +651,6 @@ void WebServerManager::handleApiStatus() {
     rel["r3"] = relays.r3;
     rel["r4"] = relays.r4;
     rel["valid"] = relays.valid;
-
-    // Larkin
-    JsonObject lk = doc["larkin"].to<JsonObject>();
-    lk["online"] = snap.larkin.online;
-    lk["ua"] = snap.larkin.ua;
-    lk["ub"] = snap.larkin.ub;
-    lk["uc"] = snap.larkin.uc;
-    lk["ia"] = snap.larkin.ia;
-    lk["ib"] = snap.larkin.ib;
-    lk["ic"] = snap.larkin.ic;
-    lk["p"] = snap.larkin.p_total;
-    lk["q"] = snap.larkin.q_total;
-    lk["s"] = snap.larkin.s_total;
-    lk["pf"] = snap.larkin.pf_avg;
-    lk["freq"] = snap.larkin.freq;
-    lk["has_e_imp"] = snap.larkin.has_e_imp;
-    lk["e_imp"] = snap.larkin.e_imp;
-    lk["has_e_exp"] = snap.larkin.has_e_exp;
-    lk["e_exp"] = snap.larkin.e_exp;
 
     // GoodWe
     JsonObject gw = doc["goodwe"].to<JsonObject>();
@@ -677,26 +671,6 @@ void WebServerManager::handleApiStatus() {
     gw["status"] = snap.goodwe.status;
     gw["has_temp"] = snap.goodwe.has_temp;
     gw["temp"] = snap.goodwe.temp;
-
-    // Sungrow
-    JsonObject sg = doc["sungrow"].to<JsonObject>();
-    sg["online"] = snap.sungrow.online;
-    sg["has_vpv"] = snap.sungrow.has_vpv;
-    sg["vpv"] = snap.sungrow.vpv;
-    sg["has_ipv"] = snap.sungrow.has_ipv;
-    sg["ipv"] = snap.sungrow.ipv;
-    sg["has_ppv"] = snap.sungrow.has_ppv;
-    sg["ppv"] = snap.sungrow.ppv;
-    sg["has_energy"] = snap.sungrow.has_energy;
-    sg["energy"] = snap.sungrow.energy_kwh;
-    sg["has_pout"] = snap.sungrow.has_pout;
-    sg["pout"] = snap.sungrow.pout;
-    sg["has_pload"] = snap.sungrow.has_pload;
-    sg["pload"] = snap.sungrow.pload;
-    sg["has_status"] = snap.sungrow.has_status;
-    sg["status"] = snap.sungrow.status;
-    sg["has_temp"] = snap.sungrow.has_temp;
-    sg["temp"] = snap.sungrow.temp;
 
     String jsonStr;
     jsonStr.reserve(1024);

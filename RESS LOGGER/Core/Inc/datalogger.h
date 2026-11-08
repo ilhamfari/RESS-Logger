@@ -1,7 +1,7 @@
 /**
   * @file    datalogger.h
   * @brief   SD card CSV datalogger with store-and-forward tracking.
-  *          One file per day under 0:/LOGS/ named YYYYMMDD.CSV (FatFs has
+  *          One file per day under 0:/GWLOGS/ named YYYYMMDD.CSV (FatFs has
   *          no long file names, so the 8.3 form is used). One row per
   *          snapshot, last column SENT = 0 until the ESP32 confirms MQTT
   *          delivery, then DataLogger_MarkSent() rewrites it to 1 in place.

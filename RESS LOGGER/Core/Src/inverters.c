@@ -175,9 +175,10 @@ static bool PollGoodWe(const ModbusDevice_t *dev)
         }
     }
 
-    /* no external meter wired to the inverter: load power is 0 */
+    /* This grid-tied protocol does not provide site load power.  Keep the
+     * field invalid instead of publishing a misleading zero. */
     d.pload = 0.0f;
-    d.ok_load = true;
+    d.ok_load = false;
 
     bool any = d.ok_energy || d.ok_pv || d.ok_pout || d.ok_status;
     if (any)
@@ -209,11 +210,32 @@ void GoodWe_Init(uint8_t slave_id, uint32_t poll_interval_ms)
     s_gw_dev.format = MB_FMT_8N2;
     s_gw_dev.poll_interval_ms = poll_interval_ms;
     s_gw_dev.offline_retry_ms = RESS_INVERTER_OFFLINE_RETRY_MS;
+    s_gw_dev.enabled = true;
     s_gw_dev.poll = PollGoodWe;
 
     RESS_LOG("GOODWE", "init: slave=%u 9600 8N2 register map=%s", slave_id,
              RESS_GOODWE_MT ? "MT/SMT" : "SDTG2/MS/DNS/XS");
     (void)Modbus_RegisterDevice(&s_gw_dev);
+}
+
+void GoodWe_SetEnabled(bool enabled)
+{
+    s_gw_dev.enabled = enabled;
+    s_gw_dev.has_polled = false;
+    s_gw_dev.fail_streak = 0U;
+
+    if (!enabled)
+    {
+        s_gw_dev.is_online = false;
+        s_gw.online = false;
+    }
+
+    RESS_LOG("GOODWE", "acquisition %s", enabled ? "ENABLED" : "DISABLED");
+}
+
+bool GoodWe_IsEnabled(void)
+{
+    return s_gw_dev.enabled;
 }
 
 void GoodWe_GetLatest(Inverter_Data_t *out)
@@ -303,6 +325,7 @@ void Sungrow_Init(uint8_t slave_id, uint32_t poll_interval_ms)
     s_sg_dev.format = MB_FMT_8N1;
     s_sg_dev.poll_interval_ms = poll_interval_ms;
     s_sg_dev.offline_retry_ms = RESS_INVERTER_OFFLINE_RETRY_MS;
+    s_sg_dev.enabled = true;
     s_sg_dev.poll = PollSungrow;
 
     RESS_LOG("SUNGROW", "init: slave=%u (FC 0x04)", slave_id);

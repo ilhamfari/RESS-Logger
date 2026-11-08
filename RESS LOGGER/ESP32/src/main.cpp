@@ -56,6 +56,18 @@ static void onRelayAck(uint8_t channel, uint8_t state) {
     Serial.printf("[MAIN] STM32 confirmed Relay %u is now %u\r\n", channel, state);
 }
 
+static void onGoodWeToggle(bool enabled) {
+    g_cfg.goodwe_enabled = enabled;
+    NVSConfigManager::saveConfig(g_cfg);
+    STM32UARTBridge::sendGoodWeEnable(enabled);
+
+    if (!enabled) {
+        s_poll_pending = false;
+        s_next_poll_epoch = 0U;
+    }
+    Serial.printf("[MAIN] GoodWe acquisition %s from web UI\r\n", enabled ? "ENABLED" : "DISABLED");
+}
+
 void setup() {
     Serial.begin(115200);
     delay(1000);
@@ -77,6 +89,7 @@ void setup() {
     Serial.printf("[CFG] Target AP: %s\r\n", g_cfg.wifi_ssid);
     Serial.printf("[CFG] MQTT Srv : %s:%u\r\n", g_cfg.mqtt_server, g_cfg.mqtt_port);
     Serial.printf("[CFG] Interval : %u min\r\n", g_cfg.send_interval_min);
+    Serial.printf("[CFG] GoodWe   : %s\r\n", g_cfg.goodwe_enabled ? "ENABLED" : "DISABLED");
 
     // 2. Setup STM32 UART Bridge
     STM32UARTBridge::init();
@@ -96,6 +109,8 @@ void setup() {
     STM32UARTBridge::sendRelayCommand(3, r3);
     delay(30);
     STM32UARTBridge::sendRelayCommand(4, r4);
+    delay(30);
+    STM32UARTBridge::sendGoodWeEnable(g_cfg.goodwe_enabled);
 
     // 3. Connect to WiFi
     WiFi.mode(WIFI_STA);
@@ -157,6 +172,7 @@ void setup() {
     // 7. Setup Web Server
     WebServerManager::init(g_cfg);
     WebServerManager::setOnRelayToggle(onRelayCommand);
+    WebServerManager::setOnGoodWeToggle(onGoodWeToggle);
 
     // The first poll is scheduled on the next real interval boundary.
     // For example, a 5-minute interval uses :00, :05, :10 ... exactly.
@@ -187,7 +203,7 @@ void loop() {
     if (interval_s == 0U) interval_s = 60U;
     uint32_t epoch_now = NTPTimeManager::getEpochSeconds();
 
-    if (STM32UARTBridge::isTimeAcked() && epoch_now >= MIN_VALID_EPOCH) {
+    if (g_cfg.goodwe_enabled && STM32UARTBridge::isTimeAcked() && epoch_now >= MIN_VALID_EPOCH) {
         if (s_next_poll_epoch == 0U) {
             s_next_poll_epoch = ((epoch_now / interval_s) + 1U) * interval_s;
             Serial.printf("[MAIN] Next telemetry minute epoch=%lu\r\n",
@@ -219,8 +235,9 @@ void loop() {
         }
     } else {
         s_next_poll_epoch = 0U;
+        s_poll_pending = false;
         static uint32_t s_last_time_wait_log = 0;
-        if ((now - s_last_time_wait_log) >= 30000UL) {
+        if (g_cfg.goodwe_enabled && (now - s_last_time_wait_log) >= 30000UL) {
             s_last_time_wait_log = now;
             Serial.println("[MAIN] Waiting for NTP time to be confirmed by STM32 before polling...");
         }

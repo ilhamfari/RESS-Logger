@@ -87,6 +87,10 @@ bool STM32UARTBridge::sendRelayCommand(uint8_t channel, uint8_t state) {
     return sendFrame(payload);
 }
 
+bool STM32UARTBridge::sendGoodWeEnable(bool enabled) {
+    return sendFrame(enabled ? "CMD,GOODWE,1" : "CMD,GOODWE,0");
+}
+
 bool STM32UARTBridge::sendTimeSync(uint16_t year, uint8_t month, uint8_t date,
                                    uint8_t hour, uint8_t minute, uint8_t second, uint32_t epoch) {
     char payload[96];

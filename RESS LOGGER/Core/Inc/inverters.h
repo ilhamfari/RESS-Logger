@@ -43,6 +43,8 @@ typedef struct
 } Inverter_Data_t;
 
 void GoodWe_Init(uint8_t slave_id, uint32_t poll_interval_ms);
+void GoodWe_SetEnabled(bool enabled);
+bool GoodWe_IsEnabled(void);
 void Sungrow_Init(uint8_t slave_id, uint32_t poll_interval_ms);
 
 /** Copy out latest data; .online reflects the Modbus device state. */

@@ -178,6 +178,7 @@ void PowerMeter_Init(uint8_t slave_id, uint32_t poll_interval_ms)
     s_dev.format = MB_FMT_8E1;
     s_dev.poll_interval_ms = poll_interval_ms;
     s_dev.offline_retry_ms = 0;
+    s_dev.enabled = true;
     s_dev.poll = PollMeter;
 
     RESS_LOG("METER", "init: slave=0x%02X, block 0x%04X + %u regs", slave_id,

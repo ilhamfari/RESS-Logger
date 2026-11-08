@@ -296,6 +296,11 @@ void Modbus_Poll(void)
         uint8_t idx = (uint8_t)((s_poll_cursor + n) % s_device_count);
         ModbusDevice_t *dev = s_devices[idx];
 
+        if (!dev->enabled)
+        {
+            continue;
+        }
+
         uint32_t period = dev->poll_interval_ms;
         if (!dev->is_online && dev->offline_retry_ms > period)
         {

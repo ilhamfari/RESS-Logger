@@ -69,8 +69,8 @@ static const char *OnOff(bool v)
 
 static void Report_Devices(void)
 {
-    bool meter, goodwe, sungrow;
-    RESS_App_GetDeviceStatus(&meter, &goodwe, &sungrow);
+    bool goodwe;
+    RESS_App_GetDeviceStatus(NULL, &goodwe, NULL);
 
     uint32_t ms = HAL_GetTick();
     uint32_t sec = ms / 1000U;
@@ -81,9 +81,9 @@ static void Report_Devices(void)
            (unsigned long)(HAL_RCC_GetSysClockFreq() / 1000000UL));
     printf("  System Uptime     : %luh %lum %lus (%lu ms)\r\n", (unsigned long)(sec / 3600U),
            (unsigned long)((sec / 60U) % 60U), (unsigned long)(sec % 60U), (unsigned long)ms);
-    printf("  Power Meter       : %s (Modbus ID %u)\r\n", meter ? "ONLINE" : "OFFLINE", (unsigned)RESS_METER_SLAVE_ID);
+    printf("  Power Meter       : DISABLED\r\n");
     printf("  GoodWe Inverter   : %s (Modbus ID %u)\r\n", goodwe ? "ONLINE" : "OFFLINE", (unsigned)RESS_GOODWE_SLAVE_ID);
-    printf("  Sungrow Inverter  : %s (Modbus ID %u)\r\n", sungrow ? "ONLINE" : "OFFLINE", (unsigned)RESS_SUNGROW_SLAVE_ID);
+    printf("  Sungrow Inverter  : DISABLED\r\n");
     HAL_IWDG_Refresh(&hiwdg);
 
     /* W25Q16 */
@@ -188,7 +188,7 @@ static void Report_SD(void)
         printf("  Card Status       : MOUNTED\r\n");
         printf("  Total Capacity    : ~%lu MB\r\n", (unsigned long)mb);
     }
-    printf("  Log Directory     : %sLOGS/\r\n", USERPath);
+    printf("  Log Directory     : %sGWLOGS/\r\n", USERPath);
 }
 
 static void Report_SDStatus(void)
@@ -270,7 +270,7 @@ static void Cmd_Help(void)
     printf("Commands:\r\n");
     printf("  AT     -- toggle the 1Hz sensor heartbeat print ON/OFF\r\n");
     printf("  CHECK  -- full status report (devices, time, SD, relays)\r\n");
-    printf("  METER / INV -- latest power meter / inverter values\r\n");
+    printf("  INV    -- latest GoodWe inverter values\r\n");
     printf("  RELAY n s -- set relay n (1..4) to s (0/1)\r\n");
     printf("  LOG    -- write one SD row now\r\n");
     printf("  SETTIME YYYY-MM-DD HH:MM:SS -- set the clock manually (normally from ESP32 NTP)\r\n");

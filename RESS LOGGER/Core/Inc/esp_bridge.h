@@ -6,8 +6,9 @@
   *
   *   ESP32 -> STM32:  $REQ,TELE,<epoch>    request a scheduled telemetry batch
   *                    $CMD,RELAY,<ch>,<s>  set relay ch(1..4) to s(0/1)
+  *                    $CMD,GOODWE,<s>      enable/disable GoodWe acquisition
   *                    $ACK,TELE,<seq>,SUCCESS  MQTT PUBACK received
-  *   STM32 -> ESP32:  $DATA,LARKIN|GOODWE|SUNGROW|RELAY|END,<seq>,...
+  *   STM32 -> ESP32:  $DATA,GOODWE|RELAY|END,<seq>,...
   *                    $ACK,RELAY,<ch>,<s>
   *                    $ERR,<what>,<reason>
   *
@@ -34,6 +35,7 @@ typedef struct
     void (*on_req_tele)(uint32_t scheduled_epoch);
     /** Apply a relay command; return the resulting state, or -1 if invalid. */
     int  (*on_cmd_relay)(uint8_t channel, uint8_t state);
+    void (*on_cmd_goodwe)(bool enabled);
     void (*on_ack_tele)(uint32_t seq, bool success);
     /** Apply time synchronization; return true if accepted. */
     bool (*on_cmd_time)(uint16_t year, uint8_t month, uint8_t date,
@@ -48,7 +50,7 @@ void ESP_Bridge_Process(void);
 /** Ask the ESP32 for the NTP time ($REQ,TIME); it replies with $CMD,TIME. */
 bool ESP_Bridge_SendReqTime(void);
 
-/** Send the full $DATA batch (LARKIN, GOODWE, SUNGROW, RELAY, END). */
+/** Send the GoodWe-only $DATA batch (GOODWE, RELAY, END). */
 bool ESP_Bridge_SendSnapshot(const RessSnapshot_t *snap);
 
 #ifdef __cplusplus

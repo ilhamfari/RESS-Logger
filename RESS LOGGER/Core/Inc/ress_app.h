@@ -1,6 +1,6 @@
 /**
   * @file    ress_app.h
-  * @brief   Application glue: Modbus polling (meter + 2 inverters), SD
+  * @brief   Application glue: GoodWe Modbus polling, SD
   *          store-and-forward logging, ESP32 request/response bridge, relays.
   */
 

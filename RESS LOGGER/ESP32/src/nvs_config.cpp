@@ -29,6 +29,7 @@ void NVSConfigManager::resetDefaults(SystemConfig &cfg) {
     strlcpy(cfg.mqtt_pass, DEFAULT_MQTT_PASS, sizeof(cfg.mqtt_pass));
 
     cfg.send_interval_min = DEFAULT_INTERVAL_MIN;
+    cfg.goodwe_enabled = true;
     updateDerivedTopics(cfg);
 }
 
@@ -54,6 +55,7 @@ bool NVSConfigManager::loadConfig(SystemConfig &cfg) {
     s_prefs.getString("m_pwd", cfg.mqtt_pass, sizeof(cfg.mqtt_pass));
 
     cfg.send_interval_min = s_prefs.getUShort("interval", DEFAULT_INTERVAL_MIN);
+    cfg.goodwe_enabled = s_prefs.getBool("gw_enable", true);
     if (cfg.send_interval_min == 0) {
         cfg.send_interval_min = 1;
     }
@@ -87,6 +89,7 @@ bool NVSConfigManager::saveConfig(const SystemConfig &cfg) {
     s_prefs.putString("m_pwd", cfg.mqtt_pass);
 
     s_prefs.putUShort("interval", cfg.send_interval_min);
+    s_prefs.putBool("gw_enable", cfg.goodwe_enabled);
 
     s_prefs.putString("t_tele", cfg.topic_telemetry);
     s_prefs.putString("t_stat", cfg.topic_status);

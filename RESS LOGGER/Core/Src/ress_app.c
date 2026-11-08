@@ -189,14 +189,12 @@ static void TakeSnapshot(uint32_t scheduled_epoch)
     s->time.second = 0U;
     s->seq = NextSeq(&s->time);
     s->time_valid = s_time_valid;
-    s->meter_online = PowerMeter_GetLatest(&s->meter);
     GoodWe_GetLatest(&s->goodwe);
-    Sungrow_GetLatest(&s->sungrow);
     s->relays = Relay_GetMask();
     s->sent = false;
 
-    RESS_LOG("APP", "snapshot seq=%lu meter=%d goodwe=%d sungrow=%d relays=0x%X", (unsigned long)s->seq,
-             (int)s->meter_online, (int)s->goodwe.online, (int)s->sungrow.online, (unsigned)s->relays);
+    RESS_LOG("APP", "snapshot seq=%lu goodwe=%d relays=0x%X", (unsigned long)s->seq,
+             (int)s->goodwe.online, (unsigned)s->relays);
 }
 
 /* Take a snapshot and log it to SD. Offline devices are written as NA, so a
@@ -213,6 +211,12 @@ static bool SnapshotAndLog(uint32_t scheduled_epoch)
 
 static void OnReqTele(uint32_t scheduled_epoch)
 {
+    if (!GoodWe_IsEnabled())
+    {
+        RESS_LOG("APP", "telemetry request ignored: GoodWe acquisition disabled");
+        return;
+    }
+
     /* The ESP32 poll interval (Telemetry Send Interval) is the log interval:
      * every request = one fresh snapshot = one SD row = one telemetry batch. */
     (void)SnapshotAndLog(scheduled_epoch);
@@ -226,6 +230,11 @@ static int OnCmdRelay(uint8_t channel, uint8_t state)
         return -1;
     }
     return Relay_Get(channel) ? 1 : 0;
+}
+
+static void OnCmdGoodWe(bool enabled)
+{
+    GoodWe_SetEnabled(enabled);
 }
 
 static void OnAckTele(uint32_t seq, bool success)
@@ -266,6 +275,7 @@ static const ESP_Handlers_t s_handlers =
 {
     .on_req_tele = OnReqTele,
     .on_cmd_relay = OnCmdRelay,
+    .on_cmd_goodwe = OnCmdGoodWe,
     .on_ack_tele = OnAckTele,
     .on_cmd_time = OnCmdTime,
 };
@@ -285,9 +295,7 @@ void RESS_App_Init(void)
     Relay_Init();
 
     Modbus_Init(&huart1);
-    PowerMeter_Init(RESS_METER_SLAVE_ID, RESS_METER_POLL_MS);
     GoodWe_Init(RESS_GOODWE_SLAVE_ID, RESS_GOODWE_POLL_MS);
-    Sungrow_Init(RESS_SUNGROW_SLAVE_ID, RESS_SUNGROW_POLL_MS);
 
     DataLogger_Init();
     ESP_Bridge_Init(&huart3, &s_handlers);
@@ -323,8 +331,6 @@ void RESS_App_PrintInverters(void)
     Inverter_Data_t d;
     GoodWe_GetLatest(&d);
     Inverter_PrintDebug("GOODWE", &d);
-    Sungrow_GetLatest(&d);
-    Inverter_PrintDebug("SUNGROW", &d);
     RESS_LOG("RELAY", "mask=0x%X", (unsigned)Relay_GetMask());
 }
 
@@ -362,16 +368,13 @@ bool RESS_App_SetTime(uint16_t year, uint8_t month, uint8_t date,
 
 void RESS_App_GetDeviceStatus(bool *meter_on, bool *goodwe_on, bool *sungrow_on)
 {
-    PowerMeter_Data_t m;
-    Inverter_Data_t g, s;
+    Inverter_Data_t g;
 
-    bool mo = PowerMeter_GetLatest(&m);
     GoodWe_GetLatest(&g);
-    Sungrow_GetLatest(&s);
 
-    if (meter_on != NULL)   { *meter_on = mo; }
+    if (meter_on != NULL)   { *meter_on = false; }
     if (goodwe_on != NULL)  { *goodwe_on = g.online; }
-    if (sungrow_on != NULL) { *sungrow_on = s.online; }
+    if (sungrow_on != NULL) { *sungrow_on = false; }
 }
 
 bool RESS_App_GetTimeInfo(DS3231_Time_t *out_time, bool *is_valid)
