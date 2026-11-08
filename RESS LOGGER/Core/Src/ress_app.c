@@ -22,6 +22,8 @@ static uint32_t        s_last_time_req;
 static RessSnapshot_t  s_snap;      /* most recent snapshot */
 static uint32_t        s_last_seq;
 
+#define UNIX_EPOCH_2026_UTC  1767225600UL
+
 /* ------------------------------------------------------------------------- */
 /* Time                                                                       */
 /* ------------------------------------------------------------------------- */
@@ -111,6 +113,50 @@ static uint32_t SecondsSince2026(const DS3231_Time_t *t)
     return days * 86400UL + (uint32_t)t->hour * 3600UL + (uint32_t)t->minute * 60UL + t->second;
 }
 
+/* Convert a UTC Unix timestamp to the plain date/time structure used by the
+ * logger.  This lets a delayed main-loop task retain its scheduled minute. */
+static bool EpochToDateTime(uint32_t epoch, DS3231_Time_t *out)
+{
+    static const uint8_t dim[12] = { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
+    if (out == NULL || epoch < UNIX_EPOCH_2026_UTC)
+    {
+        return false;
+    }
+
+    uint32_t days = epoch / 86400UL;
+    uint32_t sod = epoch % 86400UL;
+    uint16_t year = 1970U;
+
+    for (;;)
+    {
+        uint16_t diy = ((year % 4U) == 0U && ((year % 100U) != 0U || (year % 400U) == 0U)) ? 366U : 365U;
+        if (days < diy) break;
+        days -= diy;
+        year++;
+    }
+
+    uint8_t month = 1U;
+    while (month <= 12U)
+    {
+        uint8_t mdays = dim[month - 1U];
+        if (month == 2U && ((year % 4U) == 0U && ((year % 100U) != 0U || (year % 400U) == 0U)))
+        {
+            mdays = 29U;
+        }
+        if (days < mdays) break;
+        days -= mdays;
+        month++;
+    }
+
+    *out = (DS3231_Time_t){
+        year, month, (uint8_t)(days + 1U),
+        (uint8_t)(sod / 3600UL),
+        (uint8_t)((sod % 3600UL) / 60UL),
+        (uint8_t)(sod % 60UL)
+    };
+    return true;
+}
+
 /* ------------------------------------------------------------------------- */
 /* Snapshot                                                                   */
 /* ------------------------------------------------------------------------- */
@@ -118,9 +164,9 @@ static uint32_t SecondsSince2026(const DS3231_Time_t *t)
 /* Sequence = seconds since 2026-01-01 (unique across reboots), forced to be
  * strictly increasing even if the RTC is invalid or two snapshots share a
  * second. */
-static uint32_t NextSeq(void)
+static uint32_t NextSeq(const DS3231_Time_t *timestamp)
 {
-    uint32_t seq = s_time_valid ? SecondsSince2026(&s_now) : 0U;
+    uint32_t seq = s_time_valid ? SecondsSince2026(timestamp) : 0U;
     if (seq <= s_last_seq)
     {
         seq = s_last_seq + 1U;
@@ -129,15 +175,19 @@ static uint32_t NextSeq(void)
     return seq;
 }
 
-static void TakeSnapshot(void)
+static void TakeSnapshot(uint32_t scheduled_epoch)
 {
     RessSnapshot_t *s = &s_snap;
     memset(s, 0, sizeof(*s));
 
     ForceTimeRefresh();
     s->valid = true;
-    s->seq = NextSeq();
     s->time = s_now;
+    (void)EpochToDateTime(scheduled_epoch, &s->time);
+    /* CSV and MQTT timestamps are minute buckets, even when execution of the
+     * queued task happens several seconds late. */
+    s->time.second = 0U;
+    s->seq = NextSeq(&s->time);
     s->time_valid = s_time_valid;
     s->meter_online = PowerMeter_GetLatest(&s->meter);
     GoodWe_GetLatest(&s->goodwe);
@@ -151,9 +201,9 @@ static void TakeSnapshot(void)
 
 /* Take a snapshot and log it to SD. Offline devices are written as NA, so a
  * row is written whenever the clock is valid. */
-static bool SnapshotAndLog(void)
+static bool SnapshotAndLog(uint32_t scheduled_epoch)
 {
-    TakeSnapshot();
+    TakeSnapshot(scheduled_epoch);
     return DataLogger_WriteSnapshot(&s_snap);
 }
 
@@ -161,11 +211,11 @@ static bool SnapshotAndLog(void)
 /* ESP32 bridge handlers                                                      */
 /* ------------------------------------------------------------------------- */
 
-static void OnReqTele(void)
+static void OnReqTele(uint32_t scheduled_epoch)
 {
     /* The ESP32 poll interval (Telemetry Send Interval) is the log interval:
      * every request = one fresh snapshot = one SD row = one telemetry batch. */
-    (void)SnapshotAndLog();
+    (void)SnapshotAndLog(scheduled_epoch);
     (void)ESP_Bridge_SendSnapshot(&s_snap);
 }
 
@@ -280,7 +330,7 @@ void RESS_App_PrintInverters(void)
 
 void RESS_App_LogNow(void)
 {
-    (void)SnapshotAndLog();
+    (void)SnapshotAndLog(0U);
 }
 
 bool RESS_App_SetRelay(uint8_t channel, bool on)

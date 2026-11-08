@@ -4,7 +4,7 @@
   *          Frames: '$' <payload> '*' <XX> "\r\n", XX = two hex digits,
   *          XOR of every character between '$' and '*'.
   *
-  *   ESP32 -> STM32:  $REQ,TELE            request a telemetry batch
+  *   ESP32 -> STM32:  $REQ,TELE,<epoch>    request a scheduled telemetry batch
   *                    $CMD,RELAY,<ch>,<s>  set relay ch(1..4) to s(0/1)
   *                    $ACK,TELE,<seq>,SUCCESS  MQTT PUBACK received
   *   STM32 -> ESP32:  $DATA,LARKIN|GOODWE|SUNGROW|RELAY|END,<seq>,...
@@ -29,7 +29,9 @@ extern "C" {
 
 typedef struct
 {
-    void (*on_req_tele)(void);
+    /** Request one snapshot for the scheduled UTC epoch.  A value of zero is
+     *  accepted for compatibility with older ESP32 firmware. */
+    void (*on_req_tele)(uint32_t scheduled_epoch);
     /** Apply a relay command; return the resulting state, or -1 if invalid. */
     int  (*on_cmd_relay)(uint8_t channel, uint8_t state);
     void (*on_ack_tele)(uint32_t seq, bool success);

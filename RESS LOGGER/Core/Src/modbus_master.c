@@ -17,6 +17,17 @@ static uint8_t             s_poll_cursor;
 static uint8_t s_rx[5U + 2U * MB_MAX_REGS];
 static ModbusFormat_t s_format = MB_FMT_8E1;
 
+static const char *FormatStr(ModbusFormat_t fmt)
+{
+    switch (fmt)
+    {
+    case MB_FMT_8N1: return "8N1";
+    case MB_FMT_8N2: return "8N2";
+    case MB_FMT_8E1: return "8E1";
+    default:         return "?";
+    }
+}
+
 uint16_t Modbus_CRC16(const uint8_t *data, uint16_t len)
 {
     uint16_t crc = 0xFFFFU;
@@ -95,15 +106,16 @@ void Modbus_SetFormat(ModbusFormat_t fmt)
     }
 
     s_huart->Init.BaudRate = RESS_MODBUS_BAUD;
-    s_huart->Init.StopBits = UART_STOPBITS_1;
     if (fmt == MB_FMT_8E1)
     {
         s_huart->Init.WordLength = UART_WORDLENGTH_9B; /* parity bit counts in the word */
+        s_huart->Init.StopBits = UART_STOPBITS_1;
         s_huart->Init.Parity = UART_PARITY_EVEN;
     }
     else
     {
         s_huart->Init.WordLength = UART_WORDLENGTH_8B;
+        s_huart->Init.StopBits = (fmt == MB_FMT_8N2) ? UART_STOPBITS_2 : UART_STOPBITS_1;
         s_huart->Init.Parity = UART_PARITY_NONE;
     }
 
@@ -113,17 +125,25 @@ void Modbus_SetFormat(ModbusFormat_t fmt)
         return;
     }
     s_format = fmt;
-    RESS_LOG("MODBUS", "bus format -> %s", (fmt == MB_FMT_8E1) ? "8E1" : "8N1");
+    RESS_LOG("MODBUS", "bus format -> %s", FormatStr(fmt));
 }
 
 void Modbus_Init(UART_HandleTypeDef *huart)
 {
     s_huart = huart;
-    s_format = (huart->Init.Parity == UART_PARITY_EVEN) ? MB_FMT_8E1 : MB_FMT_8N1;
+    if (huart->Init.Parity == UART_PARITY_EVEN)
+    {
+        s_format = MB_FMT_8E1;
+    }
+    else
+    {
+        s_format = (huart->Init.StopBits == UART_STOPBITS_2) ? MB_FMT_8N2 : MB_FMT_8N1;
+    }
     s_device_count = 0;
     s_poll_cursor = 0;
-    RESS_LOG("MODBUS", "init: USART1 baud=%lu, 8E1, timeout=%u ms",
-             (unsigned long)huart->Init.BaudRate, (unsigned)MB_RESPONSE_TIMEOUT_MS);
+    RESS_LOG("MODBUS", "init: USART1 baud=%lu, %s, timeout=%u ms",
+             (unsigned long)huart->Init.BaudRate, FormatStr(s_format),
+             (unsigned)MB_RESPONSE_TIMEOUT_MS);
 }
 
 bool Modbus_RegisterDevice(ModbusDevice_t *dev)
@@ -142,7 +162,7 @@ bool Modbus_RegisterDevice(ModbusDevice_t *dev)
     s_devices[s_device_count++] = dev;
 
     RESS_LOG("MODBUS", "registered '%s' slave=0x%02X %s every %lu ms", dev->name,
-             dev->slave_id, (dev->format == MB_FMT_8E1) ? "8E1" : "8N1",
+             dev->slave_id, FormatStr(dev->format),
              (unsigned long)dev->poll_interval_ms);
     return true;
 }

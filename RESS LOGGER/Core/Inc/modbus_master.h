@@ -41,10 +41,11 @@ typedef enum
     DEVICE_TYPE_INVERTER
 } ModbusDeviceType_t;
 
-/** Serial format; the meter is 8E1, the inverters are 8N1 on the same bus. */
+/** Serial format; devices on the shared RS485 bus may use different framing. */
 typedef enum
 {
     MB_FMT_8N1 = 0,
+    MB_FMT_8N2,
     MB_FMT_8E1
 } ModbusFormat_t;
 
@@ -85,7 +86,7 @@ void Modbus_Init(UART_HandleTypeDef *huart);
 /** Register a device in the polling table. Returns false if table full. */
 bool Modbus_RegisterDevice(ModbusDevice_t *dev);
 
-/** Switch USART1 between 8N1 and 8E1 (no-op if already set). */
+/** Switch USART1 framing (no-op if already set). */
 void Modbus_SetFormat(ModbusFormat_t fmt);
 
 /**

@@ -8,21 +8,30 @@
 #include "stm32_uart.h"
 #include "mqtt_client.h"
 #include "web_server.h"
+#include "display_status.h"
 
 static SystemConfig g_cfg;
-static uint32_t s_last_poll_tick = 0;
-static bool s_first_poll_done = false;
+static uint32_t s_next_poll_epoch = 0;
+static uint32_t s_pending_poll_epoch = 0;
+static bool s_poll_pending = false;
+static uint32_t s_poll_sent_tick = 0;
 static uint32_t s_last_led_tick = 0;
 static bool s_led_state = false;
 
 static void onSnapshotReceived(const TelemetrySnapshot &snap) {
     Serial.printf("[MAIN] Full snapshot received from STM32 (seq=%lu)\r\n", (unsigned long)snap.seq);
 
-    uint32_t epoch = NTPTimeManager::getEpochSeconds();
+    /* Use the scheduler's minute bucket, not the time at which UART parsing
+     * happened.  Queue latency therefore never changes :00 to :27, etc. */
+    uint32_t epoch = s_pending_poll_epoch;
     if (epoch < MIN_VALID_EPOCH) {
-        Serial.printf("[MAIN] Warning: NTP not ready, using snapshot seq as ts (%lu)\r\n", (unsigned long)snap.seq);
-        epoch = snap.seq;
+        // Never invent a timestamp: the broker contract rejects ts < 2026-01-01.
+        // No ACK is sent, so the STM32 keeps this SD row as SENT=0.
+        Serial.println("[MAIN] Clock not valid yet, telemetry not published");
+        return;
     }
+
+    s_poll_pending = false;
 
     // Publish telemetry to MQTT broker
     MQTTManager::publishTelemetry(snap, epoch);
@@ -59,6 +68,8 @@ void setup() {
 
     pinMode(BUZZER_PIN, OUTPUT);
     digitalWrite(BUZZER_PIN, LOW);
+
+    DisplayStatus::init();
 
     // 1. Load Configurations from Flash
     NVSConfigManager::loadConfig(g_cfg);
@@ -104,6 +115,8 @@ void setup() {
 
     if (wifi_connected) {
         Serial.println("\r\n[WIFI] Connected! IP: " + WiFi.localIP().toString());
+        WiFi.setSleep(false);          // modem sleep causes flaky long-lived TCP/MQTT sessions
+        WiFi.setAutoReconnect(true);
         digitalWrite(LED_PIN, HIGH);
     } else {
         Serial.println("\r\n[WIFI] Failed to connect! Starting fallback Access Point...");
@@ -145,9 +158,9 @@ void setup() {
     WebServerManager::init(g_cfg);
     WebServerManager::setOnRelayToggle(onRelayCommand);
 
-    // The first poll is sent as soon as the STM32 has confirmed the NTP time
-    // (see loop()), so every SD row on the STM32 carries a valid timestamp.
-    s_last_poll_tick = millis();
+    // The first poll is scheduled on the next real interval boundary.
+    // For example, a 5-minute interval uses :00, :05, :10 ... exactly.
+    s_next_poll_epoch = 0;
 }
 
 void loop() {
@@ -156,23 +169,61 @@ void loop() {
     MQTTManager::process();
     WebServerManager::process();
     NTPTimeManager::process();
+    DisplayStatus::process();
 
-    // Periodic Telemetry Polling to STM32
     uint32_t now = millis();
-    uint32_t interval_ms = (uint32_t)g_cfg.send_interval_min * 60000UL;
-    if (interval_ms == 0) interval_ms = 60000UL;
 
-    // Poll only once the STM32 clock is set (STM32 logs one SD row per poll)
-    if (STM32UARTBridge::isTimeAcked()) {
-        if (!s_first_poll_done || (now - s_last_poll_tick >= interval_ms)) {
-            s_first_poll_done = true;
-            s_last_poll_tick = now;
-            Serial.println("[MAIN] Polling STM32 for telemetry ($REQ,TELE)...");
-            STM32UARTBridge::requestTelemetry();
+    // Auto-reconnect WiFi if disconnected
+    static uint32_t s_last_wifi_retry = 0;
+    if (WiFi.status() != WL_CONNECTED && (now - s_last_wifi_retry >= 10000)) {
+        s_last_wifi_retry = now;
+        Serial.printf("[WIFI] Reconnecting to '%s'...\r\n", g_cfg.wifi_ssid);
+        WiFi.reconnect();
+    }
+
+    // Wall-clock scheduler: execute from the cooperative task queue, while
+    // preserving the intended HH:MM:00 timestamp if servicing is delayed.
+    uint32_t interval_s = (uint32_t)g_cfg.send_interval_min * 60UL;
+    if (interval_s == 0U) interval_s = 60U;
+    uint32_t epoch_now = NTPTimeManager::getEpochSeconds();
+
+    if (STM32UARTBridge::isTimeAcked() && epoch_now >= MIN_VALID_EPOCH) {
+        if (s_next_poll_epoch == 0U) {
+            s_next_poll_epoch = ((epoch_now / interval_s) + 1U) * interval_s;
+            Serial.printf("[MAIN] Next telemetry minute epoch=%lu\r\n",
+                          (unsigned long)s_next_poll_epoch);
         }
-    } else if ((now - s_last_poll_tick) >= 30000UL) {
-        s_last_poll_tick = now;
-        Serial.println("[MAIN] Waiting for NTP time to be confirmed by STM32 before polling...");
+
+        // Recover from a missing UART response without blocking later slots.
+        if (s_poll_pending && (now - s_poll_sent_tick >= 30000UL)) {
+            Serial.println("[MAIN] Telemetry response timeout; releasing queue slot");
+            s_poll_pending = false;
+        }
+
+        if (!s_poll_pending && epoch_now >= s_next_poll_epoch) {
+            uint32_t scheduled_epoch = s_next_poll_epoch;
+            // Do not burst old samples after a long outage.  Keep the newest
+            // elapsed interval and advance the next task from wall-clock time.
+            if ((epoch_now - scheduled_epoch) >= interval_s) {
+                scheduled_epoch = (epoch_now / interval_s) * interval_s;
+            }
+            s_next_poll_epoch = scheduled_epoch + interval_s;
+            s_pending_poll_epoch = scheduled_epoch;
+            s_poll_pending = true;
+            s_poll_sent_tick = now;
+            Serial.printf("[MAIN] Queue telemetry for epoch=%lu (:00)\r\n",
+                          (unsigned long)scheduled_epoch);
+            if (!STM32UARTBridge::requestTelemetry(scheduled_epoch)) {
+                s_poll_pending = false;
+            }
+        }
+    } else {
+        s_next_poll_epoch = 0U;
+        static uint32_t s_last_time_wait_log = 0;
+        if ((now - s_last_time_wait_log) >= 30000UL) {
+            s_last_time_wait_log = now;
+            Serial.println("[MAIN] Waiting for NTP time to be confirmed by STM32 before polling...");
+        }
     }
 
     // Status LED blink

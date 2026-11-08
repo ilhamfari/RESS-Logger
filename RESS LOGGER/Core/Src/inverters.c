@@ -125,12 +125,20 @@ static bool PollGoodWe(const ModbusDevice_t *dev)
         d.ok_energy = true;
     }
 
-    /* Vpv and Ipv (3 regs cover both on the Non-MT map; MT likewise) */
-    if (!abort_poll && ReadBlock(dev, MB_FC_READ_HOLDING, GW_REG_VPV, 3, b, &abort_poll))
+    /* Both maps store Vpv1,Vpv2,Ipv1,Ipv2 in four consecutive registers.
+     * Single-MPPT models report zero for the unsupported second channel. */
+    if (!abort_poll && ReadBlock(dev, MB_FC_READ_HOLDING, GW_REG_VPV, 4, b, &abort_poll))
     {
+        float vpv2;
+        float ipv2;
+
         d.vpv = (float)Modbus_U16(b, 0) / 10.0f;
+        vpv2 = (float)Modbus_U16(b, 1) / 10.0f;
         d.ipv = (float)Modbus_U16(b, (uint16_t)(GW_REG_IPV - GW_REG_VPV)) / 10.0f;
+        ipv2 = (float)Modbus_U16(b, (uint16_t)(GW_REG_IPV - GW_REG_VPV + 1U)) / 10.0f;
+        d.ppv = (d.vpv * d.ipv) + (vpv2 * ipv2);
         d.ok_pv = true;
+        d.ok_ppv = true;
     }
 
     /* inverter active power */
@@ -167,21 +175,6 @@ static bool PollGoodWe(const ModbusDevice_t *dev)
         }
     }
 
-    /* PV power: Vpv * Ipv (Non-MT) or inverter output (MT), per the plan */
-    if (d.ok_pv)
-    {
-#if RESS_GOODWE_MT
-        if (d.ok_pout)
-        {
-            d.ppv = d.pout;
-            d.ok_ppv = true;
-        }
-#else
-        d.ppv = d.vpv * d.ipv;
-        d.ok_ppv = true;
-#endif
-    }
-
     /* no external meter wired to the inverter: load power is 0 */
     d.pload = 0.0f;
     d.ok_load = true;
@@ -213,12 +206,13 @@ void GoodWe_Init(uint8_t slave_id, uint32_t poll_interval_ms)
     s_gw_dev.name = "GOODWE";
     s_gw_dev.slave_id = slave_id;
     s_gw_dev.dev_type = DEVICE_TYPE_INVERTER;
-    s_gw_dev.format = MB_FMT_8N1;
+    s_gw_dev.format = MB_FMT_8N2;
     s_gw_dev.poll_interval_ms = poll_interval_ms;
     s_gw_dev.offline_retry_ms = RESS_INVERTER_OFFLINE_RETRY_MS;
     s_gw_dev.poll = PollGoodWe;
 
-    RESS_LOG("GOODWE", "init: slave=%u register map=%s", slave_id, RESS_GOODWE_MT ? "MT/SMT" : "Non-MT/SDTG2");
+    RESS_LOG("GOODWE", "init: slave=%u 9600 8N2 register map=%s", slave_id,
+             RESS_GOODWE_MT ? "MT/SMT" : "SDTG2/MS/DNS/XS");
     (void)Modbus_RegisterDevice(&s_gw_dev);
 }
 

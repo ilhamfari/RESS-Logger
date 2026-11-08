@@ -68,8 +68,10 @@ const RelayState& STM32UARTBridge::getLatestRelay() {
     return s_latest_relay;
 }
 
-bool STM32UARTBridge::requestTelemetry() {
-    return sendFrame("REQ,TELE");
+bool STM32UARTBridge::requestTelemetry(uint32_t scheduled_epoch) {
+    char payload[48];
+    snprintf(payload, sizeof(payload), "REQ,TELE,%lu", (unsigned long)scheduled_epoch);
+    return sendFrame(payload);
 }
 
 bool STM32UARTBridge::sendAckTelemetry(uint32_t seq, bool success) {

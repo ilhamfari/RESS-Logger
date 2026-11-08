@@ -62,6 +62,14 @@ bool NVSConfigManager::loadConfig(SystemConfig &cfg) {
     s_prefs.getString("t_stat", cfg.topic_status, sizeof(cfg.topic_status));
     s_prefs.getString("t_cmd", cfg.topic_cmd, sizeof(cfg.topic_cmd));
 
+    if (strlen(cfg.wifi_ssid) == 0) strlcpy(cfg.wifi_ssid, DEFAULT_WIFI_SSID, sizeof(cfg.wifi_ssid));
+    if (strlen(cfg.wifi_pass) == 0) strlcpy(cfg.wifi_pass, DEFAULT_WIFI_PASS, sizeof(cfg.wifi_pass));
+    if (strlen(cfg.mqtt_server) == 0) strlcpy(cfg.mqtt_server, DEFAULT_MQTT_SERVER, sizeof(cfg.mqtt_server));
+    if (cfg.mqtt_port == 0) cfg.mqtt_port = DEFAULT_MQTT_PORT;
+    if (strlen(cfg.board_id) == 0) strlcpy(cfg.board_id, DEFAULT_BOARD_ID, sizeof(cfg.board_id));
+    if (strlen(cfg.mqtt_user) == 0) strlcpy(cfg.mqtt_user, DEFAULT_MQTT_USER, sizeof(cfg.mqtt_user));
+    if (strlen(cfg.mqtt_pass) == 0) strlcpy(cfg.mqtt_pass, DEFAULT_MQTT_PASS, sizeof(cfg.mqtt_pass));
+
     updateDerivedTopics(cfg);
     return true;
 }

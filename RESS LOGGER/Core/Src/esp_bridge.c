@@ -166,7 +166,8 @@ static void HandleFrame(char *line)
     {
         if (s_h.on_req_tele != NULL)
         {
-            s_h.on_req_tele();
+            uint32_t scheduled_epoch = (nt >= 3U) ? (uint32_t)strtoul(tok[2], NULL, 10) : 0U;
+            s_h.on_req_tele(scheduled_epoch);
         }
     }
     else if (strcmp(tok[0], "CMD") == 0 && nt >= 4U && strcmp(tok[1], "RELAY") == 0)

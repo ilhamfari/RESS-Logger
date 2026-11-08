@@ -57,7 +57,7 @@ public:
     static void init();
     static void process();
 
-    static bool requestTelemetry();
+    static bool requestTelemetry(uint32_t scheduled_epoch);
     static bool sendAckTelemetry(uint32_t seq, bool success);
     static bool sendRelayCommand(uint8_t channel, uint8_t state);
     static bool sendTimeSync(uint16_t year, uint8_t month, uint8_t date,

@@ -1,6 +1,6 @@
 /**
   * @file    inverters.h
-  * @brief   GoodWe (FC 0x03, 8N1) and Sungrow (FC 0x04, 8N1) inverter
+  * @brief   GoodWe (FC 0x03, 8N2) and Sungrow (FC 0x04, 8N1) inverter
   *          Modbus drivers. Both produce the same Catalog Seed v1 metrics:
   *          pv_voltage [V], pv_current [A], pv_power [W], pv_energy_total
   *          [kWh], inv_power_out [W], load_power [W], temp_internal [degC],

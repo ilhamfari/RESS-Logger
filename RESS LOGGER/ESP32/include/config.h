@@ -18,9 +18,17 @@
 #define LED_PIN                21
 #define BUZZER_PIN             15
 
+// 128x64 SSD1306 OLED on the ESP32-S3 I2C bus.  Change these values here if
+// the PCB routes the display differently or uses another I2C address.
+#define OLED_SDA_PIN           8
+#define OLED_SCL_PIN           9
+#define OLED_I2C_ADDRESS       0x3C
+#define OLED_WIDTH             128
+#define OLED_HEIGHT            64
+
 // Default System Configurations
-#define DEFAULT_WIFI_SSID      "RESS-Network"
-#define DEFAULT_WIFI_PASS      "ress123456"
+#define DEFAULT_WIFI_SSID      "IoT"
+#define DEFAULT_WIFI_PASS      "agusramelan"
 
 #define DEFAULT_AP_SSID        "RESS_GATEWAY_AP"
 #define DEFAULT_AP_PASS        "12345678"
@@ -40,5 +48,5 @@
 #define TIMEZONE_OFFSET_S      0  // UTC per contract requirement
 #define DAYLIGHT_OFFSET_S      0
 
-// Minimum valid epoch timestamp (e.g., 2024-01-01 00:00:00 UTC = 1704067200)
-#define MIN_VALID_EPOCH        1704067200ULL
+// Minimum valid epoch timestamp (Contract: earlier ts is "unset clock", 2026-01-01 00:00:00 UTC = 1767225600)
+#define MIN_VALID_EPOCH        1767225600ULL

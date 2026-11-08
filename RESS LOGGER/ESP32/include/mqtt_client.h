@@ -19,5 +19,5 @@ public:
 
 private:
     static void connect();
-    static void onMqttMessage(char *topic, byte *payload, unsigned int length);
+    static void onMqttMessage(String &topic, String &payload);
 };

@@ -10,15 +10,17 @@
 #define RESS_FW_VERSION            "0.1.0"
 
 /* Modbus RTU bus (USART1 / RS485, auto-direction, 9600 bps).
- * Meter is 8E1; both inverters are 8N1 -- the driver switches per device. */
+ * Meter is 8E1, GoodWe is 8N2, and Sungrow is 8N1; the driver switches
+ * framing before polling each device. */
 #define RESS_MODBUS_BAUD           9600U
 
 #define RESS_METER_SLAVE_ID        0x01U
 #define RESS_METER_POLL_MS         1000U
 
-#define RESS_GOODWE_SLAVE_ID       0x02U
+#define RESS_GOODWE_SLAVE_ID       0xF7U
 #define RESS_GOODWE_POLL_MS        5000U
-/* 0 = Non-MT / SDTG2 register map, 1 = MT / SMT register map */
+/* 0 = SDTG2/MS/DNS/XS (addresses 544-566),
+ * 1 = MT/SMT (addresses 768-800 and 850-851). */
 #define RESS_GOODWE_MT             0
 
 #define RESS_SUNGROW_SLAVE_ID      0x03U
