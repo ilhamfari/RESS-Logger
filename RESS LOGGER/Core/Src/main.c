@@ -31,6 +31,7 @@
 #include "at_console.h"
 #include "w5500_port.h"
 #include "ress_app.h"
+#include "relay.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -94,7 +95,8 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  MX_I2C1_Init();
+  /* I2C1 (RTC/EEPROM) is dead on this board: not initialised. Time comes from the ESP32. */
+  /* MX_I2C1_Init(); */
   MX_SPI1_Init();
   MX_SPI3_Init();
   MX_USART1_UART_Init();
@@ -106,7 +108,8 @@ int main(void)
   MX_FATFS_Init();
   /* USER CODE BEGIN 2 */
   W5500_Port_Init();
-  RESS_App_Init();
+  RESS_App_Init();          /* Relay_Init(): all relays OFF */
+  Relay_RestoreFromFlash(); /* then restore the last saved state (SPI3 is up) */
   /* USER CODE END 2 */
 
   /* Infinite loop */

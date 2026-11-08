@@ -7,47 +7,39 @@
 #include <string.h>
 
 #define CSV_HEADER \
-    "timestamp,device_id,ua,ub,uc,uab,ubc,uca,ia,ib,ic,pa,pb,pc,p_total," \
-    "qa,qb,qc,q_total,sa,sb,sc,s_total,pf1,pf2,pf3,pf_avg,freq\r\n"
+    "timestamp,seq," \
+    "ua,ub,uc,uab,ubc,uca,ia,ib,ic,pa,pb,pc,p_total,qa,qb,qc,q_total,sa,sb,sc,s_total,pf1,pf2,pf3,pf_avg,freq," \
+    "gw_vpv,gw_ipv,gw_ppv,gw_e_total,gw_p_out,gw_p_load,gw_status,gw_temp," \
+    "sg_vpv,sg_ipv,sg_ppv,sg_e_total,sg_p_out,sg_p_load,sg_status,sg_temp," \
+    "r1,r2,r3,r4,sent\r\n"
 
-static uint32_t s_interval_min = DL_DEFAULT_INTERVAL_MIN;
-static uint32_t s_last_log_tick;
-static bool     s_logged_once;
-static bool     s_mounted;
-static uint32_t s_last_mount_try;
-static bool     s_mount_tried;
-static uint32_t s_fattime;
-static uint32_t s_rows_written;
-static uint32_t s_last_skip_print;
+#define METER_FIELD_COUNT 26U
+
+typedef struct
+{
+    uint32_t seq;
+    char     path[28];
+    uint32_t flag_offset; /* byte offset of the '0' SENT character */
+    bool     used;
+} Pending_t;
+
+static bool      s_mounted;
+static uint32_t  s_last_mount_try;
+static bool      s_mount_tried;
+static uint32_t  s_fattime;
+static uint32_t  s_rows_written;
+static uint32_t  s_rows_sent;
+static Pending_t s_pending[DL_PENDING_MAX];
+static uint8_t   s_pending_next;
 
 void DataLogger_Init(void)
 {
-    s_interval_min = DL_DEFAULT_INTERVAL_MIN;
-    s_logged_once = false;
     s_mounted = false;
     s_mount_tried = false;
     s_rows_written = 0;
-    RESS_LOG("LOGGER", "init: interval=%lu min, dir=%sLOGS, file=YYYYMMDD.CSV",
-             (unsigned long)s_interval_min, USERPath);
-}
-
-void DataLogger_SetIntervalMin(uint32_t minutes)
-{
-    if (minutes < 1U)
-    {
-        minutes = 1U;
-    }
-    if (minutes > DL_MAX_INTERVAL_MIN)
-    {
-        minutes = DL_MAX_INTERVAL_MIN;
-    }
-    s_interval_min = minutes;
-    RESS_LOG("LOGGER", "interval set to %lu min", (unsigned long)s_interval_min);
-}
-
-uint32_t DataLogger_GetIntervalMin(void)
-{
-    return s_interval_min;
+    s_rows_sent = 0;
+    memset(s_pending, 0, sizeof(s_pending));
+    RESS_LOG("LOGGER", "init: one row per $REQ,TELE from ESP32, dir=%sLOGS, file=YYYYMMDD.CSV", USERPath);
 }
 
 void DataLogger_UpdateFatTime(const DS3231_Time_t *now)
@@ -104,26 +96,110 @@ static bool EnsureMounted(void)
     return true;
 }
 
-static bool WriteRow(const DS3231_Time_t *t, const PowerMeter_Data_t *d)
+static void AppendNaFields(char *buf, size_t size, size_t *pos, size_t count)
+{
+    for (size_t i = 0; i < count; i++)
+    {
+        int n = snprintf(&buf[*pos], size - *pos, i == 0U ? "NA" : ",NA");
+        if (n > 0)
+        {
+            *pos += (size_t)n;
+        }
+    }
+}
+
+/* Builds the CSV row; returns length, sets *flag_idx to the SENT char index. */
+static int BuildRow(char *row, size_t size, const RessSnapshot_t *s, size_t *flag_idx)
+{
+    const DS3231_Time_t *t = &s->time;
+    char   fields[240];
+    size_t pos = 0;
+    int    n;
+
+    n = snprintf(row, size, "%04u-%02u-%02u %02u:%02u:%02u,%lu,", (unsigned)t->year, (unsigned)t->month,
+                 (unsigned)t->date, (unsigned)t->hour, (unsigned)t->minute, (unsigned)t->second,
+                 (unsigned long)s->seq);
+    if (n <= 0 || (size_t)n >= size)
+    {
+        return -1;
+    }
+    pos = (size_t)n;
+
+    if (s->meter_online && s->meter.valid)
+    {
+        PowerMeter_FormatFields(fields, sizeof(fields), &s->meter);
+        n = snprintf(&row[pos], size - pos, "%s", fields);
+        if (n > 0)
+        {
+            pos += (size_t)n;
+        }
+    }
+    else
+    {
+        AppendNaFields(row, size, &pos, METER_FIELD_COUNT);
+    }
+
+    Inverter_FormatFields(fields, sizeof(fields), &s->goodwe);
+    n = snprintf(&row[pos], size - pos, ",%s", fields);
+    if (n > 0)
+    {
+        pos += (size_t)n;
+    }
+
+    Inverter_FormatFields(fields, sizeof(fields), &s->sungrow);
+    n = snprintf(&row[pos], size - pos, ",%s", fields);
+    if (n > 0)
+    {
+        pos += (size_t)n;
+    }
+
+    n = snprintf(&row[pos], size - pos, ",%u,%u,%u,%u,", (unsigned)(s->relays & 1U),
+                 (unsigned)((s->relays >> 1) & 1U), (unsigned)((s->relays >> 2) & 1U),
+                 (unsigned)((s->relays >> 3) & 1U));
+    if (n > 0)
+    {
+        pos += (size_t)n;
+    }
+
+    if (pos + 4U >= size)
+    {
+        return -1;
+    }
+    *flag_idx = pos;
+    row[pos++] = '0'; /* SENT */
+    row[pos++] = '\r';
+    row[pos++] = '\n';
+    row[pos] = '\0';
+    return (int)pos;
+}
+
+static void PushPending(uint32_t seq, const char *path, uint32_t flag_offset)
+{
+    Pending_t *p = &s_pending[s_pending_next];
+    s_pending_next = (uint8_t)((s_pending_next + 1U) % DL_PENDING_MAX);
+
+    p->seq = seq;
+    p->flag_offset = flag_offset;
+    p->used = true;
+    snprintf(p->path, sizeof(p->path), "%s", path);
+}
+
+static bool WriteRow(const RessSnapshot_t *s)
 {
     char dir[16];
-    char path[40];
-    char row[360];
-    char fields[240];
+    char path[28];
+    char row[560];
     FIL  file;
     UINT bw = 0;
+    size_t flag_idx = 0;
     FRESULT fr;
 
     snprintf(dir, sizeof(dir), "%sLOGS", USERPath);
-    snprintf(path, sizeof(path), "%sLOGS/%04u%02u%02u.CSV", USERPath,
-             (unsigned)t->year, (unsigned)t->month, (unsigned)t->date);
+    snprintf(path, sizeof(path), "%sLOGS/%04u%02u%02u.CSV", USERPath, (unsigned)s->time.year,
+             (unsigned)s->time.month, (unsigned)s->time.date);
 
-    PowerMeter_FormatFields(fields, sizeof(fields), d);
-    int n = snprintf(row, sizeof(row), "%04u-%02u-%02u %02u:%02u:%02u,%s,%s\r\n",
-                     (unsigned)t->year, (unsigned)t->month, (unsigned)t->date,
-                     (unsigned)t->hour, (unsigned)t->minute, (unsigned)t->second,
-                     RESS_DEVICE_ID, fields);
-    if (n <= 0 || n >= (int)sizeof(row))
+    int n = BuildRow(row, sizeof(row), s, &flag_idx);
+    if (n <= 0)
     {
         RESS_LOG("LOGGER", "row too long, dropped");
         return false;
@@ -145,10 +221,8 @@ static bool WriteRow(const DS3231_Time_t *t, const PowerMeter_Data_t *d)
         return false;
     }
 
-    bool new_file = (f_size(&file) == 0U);
-
     fr = f_lseek(&file, f_size(&file));
-    if (fr == FR_OK && new_file)
+    if (fr == FR_OK && f_size(&file) == 0U)
     {
         fr = f_write(&file, CSV_HEADER, (UINT)strlen(CSV_HEADER), &bw);
         if (fr == FR_OK)
@@ -157,6 +231,8 @@ static bool WriteRow(const DS3231_Time_t *t, const PowerMeter_Data_t *d)
         }
     }
     HAL_IWDG_Refresh(&hiwdg);
+
+    uint32_t row_offset = (uint32_t)f_tell(&file);
 
     if (fr == FR_OK)
     {
@@ -180,22 +256,18 @@ static bool WriteRow(const DS3231_Time_t *t, const PowerMeter_Data_t *d)
         return false;
     }
 
+    PushPending(s->seq, path, row_offset + (uint32_t)flag_idx);
     s_rows_written++;
-    RESS_LOG("LOGGER", "row #%lu -> %s (%d bytes)", (unsigned long)s_rows_written, path, n);
+    RESS_LOG("LOGGER", "DATA SAVED TO SD CARD (seq=%lu, file=%s, rows=%lu)", (unsigned long)s->seq, path,
+             (unsigned long)s_rows_written);
     return true;
 }
 
-bool DataLogger_LogNow(const DS3231_Time_t *now, bool time_valid,
-                       const PowerMeter_Data_t *data, bool meter_online)
+bool DataLogger_WriteSnapshot(const RessSnapshot_t *snap)
 {
-    if (!time_valid)
+    if (!snap->time_valid)
     {
         RESS_LOG("LOGGER", "skip: RTC time not valid (use SETTIME)");
-        return false;
-    }
-    if (!meter_online || !data->valid)
-    {
-        RESS_LOG("LOGGER", "skip: meter offline / no data");
         return false;
     }
     if (!EnsureMounted())
@@ -203,7 +275,7 @@ bool DataLogger_LogNow(const DS3231_Time_t *now, bool time_valid,
         return false;
     }
 
-    if (!WriteRow(now, data))
+    if (!WriteRow(snap))
     {
         /* Force a fresh card init + mount on the next attempt. */
         s_mounted = false;
@@ -214,38 +286,82 @@ bool DataLogger_LogNow(const DS3231_Time_t *now, bool time_valid,
     return true;
 }
 
-void DataLogger_Process(const DS3231_Time_t *now, bool time_valid,
-                        const PowerMeter_Data_t *data, bool meter_online)
+bool DataLogger_MarkSent(uint32_t seq)
 {
-    uint32_t tick = HAL_GetTick();
-    uint32_t interval_ms = s_interval_min * 60000UL;
-
-    if (s_logged_once && (tick - s_last_log_tick) < interval_ms)
+    for (uint8_t i = 0; i < DL_PENDING_MAX; i++)
     {
-        return;
-    }
-
-    if (!time_valid || !meter_online)
-    {
-        /* Do not spam: report the blocker once every 30 s. */
-        if ((tick - s_last_skip_print) >= 30000U)
+        Pending_t *p = &s_pending[i];
+        if (!p->used || p->seq != seq)
         {
-            s_last_skip_print = tick;
-            RESS_LOG("LOGGER", "waiting: time_valid=%d meter_online=%d", (int)time_valid,
-                     (int)meter_online);
+            continue;
         }
-        return;
+
+        if (!s_mounted)
+        {
+            RESS_LOG("LOGGER", "cannot mark seq=%lu sent: SD not mounted", (unsigned long)seq);
+            return false;
+        }
+
+        FIL file;
+        UINT bw = 0;
+        HAL_IWDG_Refresh(&hiwdg);
+
+        FRESULT fr = f_open(&file, p->path, FA_OPEN_EXISTING | FA_WRITE);
+        if (fr == FR_OK)
+        {
+            fr = f_lseek(&file, p->flag_offset);
+        }
+        if (fr == FR_OK)
+        {
+            fr = f_write(&file, "1", 1, &bw);
+        }
+        if (fr == FR_OK)
+        {
+            fr = f_sync(&file);
+        }
+        FRESULT fc = f_close(&file);
+        HAL_IWDG_Refresh(&hiwdg);
+
+        if (fr != FR_OK || fc != FR_OK || bw != 1U)
+        {
+            RESS_LOG("LOGGER", "mark sent seq=%lu FAILED FRESULT=%d/%d", (unsigned long)seq, (int)fr, (int)fc);
+            return false;
+        }
+
+        p->used = false;
+        s_rows_sent++;
+        RESS_LOG("LOGGER", "seq=%lu marked SENT=1 in %s", (unsigned long)seq, p->path);
+        return true;
     }
 
-    if (DataLogger_LogNow(now, time_valid, data, meter_online))
+    RESS_LOG("LOGGER", "seq=%lu not in pending list (not logged or too old)", (unsigned long)seq);
+    return false;
+}
+
+uint32_t DataLogger_GetRowsWritten(void)
+{
+    return s_rows_written;
+}
+
+uint32_t DataLogger_GetRowsSent(void)
+{
+    return s_rows_sent;
+}
+
+uint8_t DataLogger_GetPendingCount(void)
+{
+    uint8_t n = 0;
+    for (uint8_t i = 0; i < DL_PENDING_MAX; i++)
     {
-        s_logged_once = true;
-        s_last_log_tick = tick;
+        if (s_pending[i].used)
+        {
+            n++;
+        }
     }
-    else
-    {
-        /* Back off one second so a failing card does not stall the loop. */
-        s_logged_once = true;
-        s_last_log_tick = tick - interval_ms + 1000U;
-    }
+    return n;
+}
+
+bool DataLogger_IsMounted(void)
+{
+    return s_mounted;
 }

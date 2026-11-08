@@ -1,17 +1,16 @@
 /**
   * @file    datalogger.h
-  * @brief   SD card CSV datalogger. One file per day under 0:/LOGS/ named
-  *          YYYYMMDD.CSV (FatFs is configured without long file names, so
-  *          the 8.3 form is used instead of YYYY-MM-DD.CSV). A new file gets
-  *          a header row; every row is f_sync()'d and the file closed so a
-  *          power cut cannot lose the FAT state.
+  * @brief   SD card CSV datalogger with store-and-forward tracking.
+  *          One file per day under 0:/LOGS/ named YYYYMMDD.CSV (FatFs has
+  *          no long file names, so the 8.3 form is used). One row per
+  *          snapshot, last column SENT = 0 until the ESP32 confirms MQTT
+  *          delivery, then DataLogger_MarkSent() rewrites it to 1 in place.
   */
 
 #ifndef DATALOGGER_H
 #define DATALOGGER_H
 
-#include "ds3231.h"
-#include "power_meter.h"
+#include "ress_snapshot.h"
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -19,25 +18,21 @@
 extern "C" {
 #endif
 
-#define DL_DEFAULT_INTERVAL_MIN   1U
-#define DL_MAX_INTERVAL_MIN       1440U
 #define DL_REMOUNT_RETRY_MS       10000U
+#define DL_PENDING_MAX            8U     /* rows whose SENT flag can still be updated */
 
 void DataLogger_Init(void);
 
-/**
-  * @brief Main-loop hook. Logs one row when the interval has elapsed,
-  *        the meter is online and the RTC time is valid.
-  */
-void DataLogger_Process(const DS3231_Time_t *now, bool time_valid,
-                        const PowerMeter_Data_t *data, bool meter_online);
+/** Append one row (SENT=0). Mounts the card if needed. */
+bool DataLogger_WriteSnapshot(const RessSnapshot_t *snap);
 
-/** Force one row immediately (console LOG command). */
-bool DataLogger_LogNow(const DS3231_Time_t *now, bool time_valid,
-                       const PowerMeter_Data_t *data, bool meter_online);
+/** Rewrite SENT to 1 for a previously written row. */
+bool DataLogger_MarkSent(uint32_t seq);
 
-void     DataLogger_SetIntervalMin(uint32_t minutes);
-uint32_t DataLogger_GetIntervalMin(void);
+uint32_t DataLogger_GetRowsWritten(void);
+uint32_t DataLogger_GetRowsSent(void);
+uint8_t  DataLogger_GetPendingCount(void);
+bool     DataLogger_IsMounted(void);
 
 /** FAT timestamp for get_fattime(); 0 until an RTC time has been seen. */
 uint32_t DataLogger_GetFatTime(void);

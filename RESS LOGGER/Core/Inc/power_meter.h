@@ -57,6 +57,14 @@ bool PowerMeter_Decode(const uint8_t *data, uint16_t len, PowerMeter_Data_t *out
   */
 int PowerMeter_FormatFields(char *buf, size_t size, const PowerMeter_Data_t *d);
 
+/**
+  * @brief Fields for the Larkin $DATA sentence, in the order
+  *        V1,V2,V3,I1,I2,I3,P_tot,Q_tot,S_tot,PF,Freq,E_imp,E_exp.
+  *        Energy counters are not in the register block read here, so
+  *        E_imp and E_exp are always "NA".
+  */
+int PowerMeter_FormatSentence(char *buf, size_t size, const PowerMeter_Data_t *d);
+
 /** Multi-line human readable dump on the serial monitor. */
 void PowerMeter_PrintDebug(const PowerMeter_Data_t *d);
 

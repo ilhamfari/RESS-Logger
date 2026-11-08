@@ -41,27 +41,36 @@ typedef enum
     DEVICE_TYPE_INVERTER
 } ModbusDeviceType_t;
 
+/** Serial format; the meter is 8E1, the inverters are 8N1 on the same bus. */
+typedef enum
+{
+    MB_FMT_8N1 = 0,
+    MB_FMT_8E1
+} ModbusFormat_t;
+
+#define MB_FC_READ_HOLDING  0x03U
+#define MB_FC_READ_INPUT    0x04U
+
 struct ModbusDevice_s;
 
 /**
-  * Called after a successful read with the raw register bytes
-  * (big-endian, 2 * reg_count bytes). Return false if the payload is
-  * rejected (counts as a failed poll).
+  * Device poll routine: performs all register reads the device needs (via
+  * Modbus_ReadRegisters) and stores the decoded result. Return true if at
+  * least the essential data was obtained (counts as a successful poll).
   */
-typedef bool (*ModbusParseFn_t)(const struct ModbusDevice_s *dev,
-                                const uint8_t *data, uint16_t len);
+typedef bool (*ModbusPollFn_t)(const struct ModbusDevice_s *dev);
 
 typedef struct ModbusDevice_s
 {
     const char        *name;
     uint8_t            slave_id;
     ModbusDeviceType_t dev_type;
-    uint16_t           start_reg;
-    uint16_t           reg_count;
+    ModbusFormat_t     format;
     uint32_t           poll_interval_ms;
+    uint32_t           offline_retry_ms; /* poll period while offline (0 = same) */
     uint32_t           last_poll_tick;
     bool               is_online;
-    ModbusParseFn_t    parse;
+    ModbusPollFn_t     poll;
     /* runtime statistics */
     bool               has_polled;
     uint8_t            fail_streak;
@@ -76,14 +85,20 @@ void Modbus_Init(UART_HandleTypeDef *huart);
 /** Register a device in the polling table. Returns false if table full. */
 bool Modbus_RegisterDevice(ModbusDevice_t *dev);
 
+/** Switch USART1 between 8N1 and 8E1 (no-op if already set). */
+void Modbus_SetFormat(ModbusFormat_t fmt);
+
 /**
-  * @brief Single blocking FC 0x03 transaction.
+  * @brief Single blocking read transaction (FC 0x03 or 0x04).
   * @param out       receives 2*count bytes (big-endian register data)
   * @param exc_code  receives the exception code on MB_ERR_EXCEPTION (may be NULL)
   */
-ModbusStatus_t Modbus_ReadHoldingRegisters(uint8_t slave, uint16_t start,
-                                           uint16_t count, uint8_t *out,
-                                           uint8_t *exc_code);
+ModbusStatus_t Modbus_ReadRegisters(uint8_t slave, uint8_t fc, uint16_t start,
+                                    uint16_t count, uint8_t *out,
+                                    uint8_t *exc_code);
+
+/** Big-endian register helpers for poll routines. */
+uint16_t Modbus_U16(const uint8_t *data, uint16_t reg_index);
 
 /** Call from the main loop; polls at most one due device per call. */
 void Modbus_Poll(void);

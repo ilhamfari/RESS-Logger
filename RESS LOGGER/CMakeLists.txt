@@ -61,6 +61,8 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/ress_util.c
     Core/Src/modbus_master.c
     Core/Src/power_meter.c
+    Core/Src/inverters.c
+    Core/Src/relay.c
     Core/Src/datalogger.c
     Core/Src/esp_bridge.c
     Core/Src/ress_app.c

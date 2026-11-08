@@ -1,32 +1,53 @@
 /**
   * @file    esp_bridge.h
-  * @brief   STM32 -> ESP32-S3 telemetry link on USART3 (115200 8N1,
-  *          interrupt driven TX). Frames are ASCII, '$' ... '*XX\n', where
-  *          XX is the XOR of all characters between '$' and '*' in hex:
+  * @brief   STM32 <-> ESP32-S3 link on USART3 (115200 8N1).
+  *          Frames: '$' <payload> '*' <XX> "\r\n", XX = two hex digits,
+  *          XOR of every character between '$' and '*'.
   *
-  *   $TELE,RESS01,2026-11-07 08:50:00,<26 fields>*XX\n
-  *   $STAT,RESS01,OFFLINE*XX\n
+  *   ESP32 -> STM32:  $REQ,TELE            request a telemetry batch
+  *                    $CMD,RELAY,<ch>,<s>  set relay ch(1..4) to s(0/1)
+  *                    $ACK,TELE,<seq>,SUCCESS  MQTT PUBACK received
+  *   STM32 -> ESP32:  $DATA,LARKIN|GOODWE|SUNGROW|RELAY|END,<seq>,...
+  *                    $ACK,RELAY,<ch>,<s>
+  *                    $ERR,<what>,<reason>
   *
-  *   The timestamp is 0000-00-00 00:00:00 when the RTC time is not valid.
+  *   RX is interrupt driven (1 byte at a time into a ring buffer), TX is a
+  *   short blocking transmit (a frame is ~10 ms at 115200).
   */
 
 #ifndef ESP_BRIDGE_H
 #define ESP_BRIDGE_H
 
 #include "main.h"
-#include "power_meter.h"
+#include "ress_snapshot.h"
 #include <stdbool.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-void ESP_Bridge_Init(UART_HandleTypeDef *huart);
+typedef struct
+{
+    void (*on_req_tele)(void);
+    /** Apply a relay command; return the resulting state, or -1 if invalid. */
+    int  (*on_cmd_relay)(uint8_t channel, uint8_t state);
+    void (*on_ack_tele)(uint32_t seq, bool success);
+    /** Apply time synchronization; return true if accepted. */
+    bool (*on_cmd_time)(uint16_t year, uint8_t month, uint8_t date,
+                        uint8_t hour, uint8_t minute, uint8_t second, uint32_t epoch);
+} ESP_Handlers_t;
 
-/** Returns false if the previous frame is still being transmitted. */
-bool ESP_Bridge_SendTelemetry(const char *timestamp, const PowerMeter_Data_t *d);
+void ESP_Bridge_Init(UART_HandleTypeDef *huart, const ESP_Handlers_t *handlers);
 
-bool ESP_Bridge_SendStatus(bool meter_online);
+/** Main-loop hook: assemble received bytes into frames and dispatch them. */
+void ESP_Bridge_Process(void);
+
+/** Ask the ESP32 for the NTP time ($REQ,TIME); it replies with $CMD,TIME. */
+bool ESP_Bridge_SendReqTime(void);
+
+/** Send the full $DATA batch (LARKIN, GOODWE, SUNGROW, RELAY, END). */
+bool ESP_Bridge_SendSnapshot(const RessSnapshot_t *snap);
 
 #ifdef __cplusplus
 }

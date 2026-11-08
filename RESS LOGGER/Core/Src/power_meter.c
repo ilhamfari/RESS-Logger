@@ -122,9 +122,8 @@ bool PowerMeter_Decode(const uint8_t *data, uint16_t len, PowerMeter_Data_t *out
     return true;
 }
 
-static bool OnData(const ModbusDevice_t *dev, const uint8_t *data, uint16_t len)
+static bool OnData(const uint8_t *data, uint16_t len)
 {
-    (void)dev;
     PowerMeter_Data_t d;
 
     if (!PowerMeter_Decode(data, len, &d))
@@ -146,6 +145,28 @@ static bool OnData(const ModbusDevice_t *dev, const uint8_t *data, uint16_t len)
     return true;
 }
 
+static bool PollMeter(const ModbusDevice_t *dev)
+{
+    uint8_t buf[2U * PM_REG_COUNT];
+    uint8_t exc = 0;
+
+    ModbusStatus_t st = Modbus_ReadRegisters(dev->slave_id, MB_FC_READ_HOLDING, PM_START_REG,
+                                             PM_REG_COUNT, buf, &exc);
+    if (st != MB_OK)
+    {
+        if (st == MB_ERR_EXCEPTION)
+        {
+            RESS_LOG("METER", "Modbus exception 0x%02X", exc);
+        }
+        else
+        {
+            RESS_LOG("METER", "read failed: %s", Modbus_StatusStr(st));
+        }
+        return false;
+    }
+    return OnData(buf, sizeof(buf));
+}
+
 void PowerMeter_Init(uint8_t slave_id, uint32_t poll_interval_ms)
 {
     memset(&s_latest, 0, sizeof(s_latest));
@@ -154,10 +175,10 @@ void PowerMeter_Init(uint8_t slave_id, uint32_t poll_interval_ms)
     s_dev.name = "PowerMeter";
     s_dev.slave_id = slave_id;
     s_dev.dev_type = DEVICE_TYPE_POWER_METER;
-    s_dev.start_reg = PM_START_REG;
-    s_dev.reg_count = PM_REG_COUNT;
+    s_dev.format = MB_FMT_8E1;
     s_dev.poll_interval_ms = poll_interval_ms;
-    s_dev.parse = OnData;
+    s_dev.offline_retry_ms = 0;
+    s_dev.poll = PollMeter;
 
     RESS_LOG("METER", "init: slave=0x%02X, block 0x%04X + %u regs", slave_id,
              (unsigned)PM_START_REG, (unsigned)PM_REG_COUNT);
@@ -214,6 +235,43 @@ int PowerMeter_FormatFields(char *buf, size_t size, const PowerMeter_Data_t *d)
     if (pos < size)
     {
         buf[pos] = '\0';
+    }
+    return (int)pos;
+}
+
+int PowerMeter_FormatSentence(char *buf, size_t size, const PowerMeter_Data_t *d)
+{
+    typedef struct { float v; uint8_t dec; } Field_t;
+    const Field_t f[] =
+    {
+        { d->ua, 1 }, { d->ub, 1 }, { d->uc, 1 },
+        { d->ia, 3 }, { d->ib, 3 }, { d->ic, 3 },
+        { d->p_total, 1 }, { d->q_total, 1 }, { d->s_total, 1 },
+        { d->pf_avg, 3 }, { d->freq, 2 }
+    };
+
+    size_t pos = 0;
+    for (size_t k = 0; k < (sizeof(f) / sizeof(f[0])); k++)
+    {
+        if (pos + 2U >= size)
+        {
+            break;
+        }
+        if (k > 0U)
+        {
+            buf[pos++] = ',';
+        }
+        int n = RESS_FmtFixed(&buf[pos], size - pos, f[k].v, f[k].dec);
+        if (n < 0)
+        {
+            break;
+        }
+        pos += (size_t)n;
+    }
+    int n = snprintf(&buf[pos], size - pos, ",NA,NA");
+    if (n > 0)
+    {
+        pos += (size_t)n;
     }
     return (int)pos;
 }

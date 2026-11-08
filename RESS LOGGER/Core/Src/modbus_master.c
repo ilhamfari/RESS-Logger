@@ -1,6 +1,7 @@
 #include "modbus_master.h"
 #include "iwdg.h"
 #include "ress_util.h"
+#include "ress_config.h"
 #include <string.h>
 
 /* Set to 1 to dump every TX/RX frame as hex on the serial monitor. */
@@ -14,7 +15,7 @@ static uint8_t             s_device_count;
 static uint8_t             s_poll_cursor;
 
 static uint8_t s_rx[5U + 2U * MB_MAX_REGS];
-static uint8_t s_data[2U * MB_MAX_REGS];
+static ModbusFormat_t s_format = MB_FMT_8E1;
 
 uint16_t Modbus_CRC16(const uint8_t *data, uint16_t len)
 {
@@ -81,9 +82,44 @@ static void FlushRx(void)
     __HAL_UART_CLEAR_OREFLAG(s_huart);
 }
 
+uint16_t Modbus_U16(const uint8_t *data, uint16_t reg_index)
+{
+    return (uint16_t)(((uint16_t)data[2U * reg_index] << 8) | data[2U * reg_index + 1U]);
+}
+
+void Modbus_SetFormat(ModbusFormat_t fmt)
+{
+    if (s_huart == NULL || fmt == s_format)
+    {
+        return;
+    }
+
+    s_huart->Init.BaudRate = RESS_MODBUS_BAUD;
+    s_huart->Init.StopBits = UART_STOPBITS_1;
+    if (fmt == MB_FMT_8E1)
+    {
+        s_huart->Init.WordLength = UART_WORDLENGTH_9B; /* parity bit counts in the word */
+        s_huart->Init.Parity = UART_PARITY_EVEN;
+    }
+    else
+    {
+        s_huart->Init.WordLength = UART_WORDLENGTH_8B;
+        s_huart->Init.Parity = UART_PARITY_NONE;
+    }
+
+    if (HAL_UART_Init(s_huart) != HAL_OK)
+    {
+        RESS_LOG("MODBUS", "format switch FAILED");
+        return;
+    }
+    s_format = fmt;
+    RESS_LOG("MODBUS", "bus format -> %s", (fmt == MB_FMT_8E1) ? "8E1" : "8N1");
+}
+
 void Modbus_Init(UART_HandleTypeDef *huart)
 {
     s_huart = huart;
+    s_format = (huart->Init.Parity == UART_PARITY_EVEN) ? MB_FMT_8E1 : MB_FMT_8N1;
     s_device_count = 0;
     s_poll_cursor = 0;
     RESS_LOG("MODBUS", "init: USART1 baud=%lu, 8E1, timeout=%u ms",
@@ -105,15 +141,15 @@ bool Modbus_RegisterDevice(ModbusDevice_t *dev)
     dev->err_count = 0;
     s_devices[s_device_count++] = dev;
 
-    RESS_LOG("MODBUS", "registered '%s' slave=0x%02X regs=0x%04X..+%u every %lu ms",
-             dev->name, dev->slave_id, dev->start_reg, (unsigned)dev->reg_count,
+    RESS_LOG("MODBUS", "registered '%s' slave=0x%02X %s every %lu ms", dev->name,
+             dev->slave_id, (dev->format == MB_FMT_8E1) ? "8E1" : "8N1",
              (unsigned long)dev->poll_interval_ms);
     return true;
 }
 
-ModbusStatus_t Modbus_ReadHoldingRegisters(uint8_t slave, uint16_t start,
-                                           uint16_t count, uint8_t *out,
-                                           uint8_t *exc_code)
+ModbusStatus_t Modbus_ReadRegisters(uint8_t slave, uint8_t fc, uint16_t start,
+                                    uint16_t count, uint8_t *out,
+                                    uint8_t *exc_code)
 {
     uint8_t tx[8];
 
@@ -123,7 +159,7 @@ ModbusStatus_t Modbus_ReadHoldingRegisters(uint8_t slave, uint16_t start,
     }
 
     tx[0] = slave;
-    tx[1] = 0x03U;
+    tx[1] = fc;
     tx[2] = (uint8_t)(start >> 8);
     tx[3] = (uint8_t)(start & 0xFFU);
     tx[4] = (uint8_t)(count >> 8);
@@ -155,7 +191,7 @@ ModbusStatus_t Modbus_ReadHoldingRegisters(uint8_t slave, uint16_t start,
 #endif
 
     /* Exception frame: slave | 0x83 | code | crc16 (5 bytes). */
-    if (got >= 5U && s_rx[0] == slave && s_rx[1] == (uint8_t)(0x80U | 0x03U))
+    if (got >= 5U && s_rx[0] == slave && s_rx[1] == (uint8_t)(0x80U | fc))
     {
         uint16_t ecrc = Modbus_CRC16(s_rx, 3);
         if (s_rx[3] == (uint8_t)(ecrc & 0xFFU) && s_rx[4] == (uint8_t)(ecrc >> 8))
@@ -186,7 +222,7 @@ ModbusStatus_t Modbus_ReadHoldingRegisters(uint8_t slave, uint16_t start,
         return MB_ERR_CRC;
     }
 
-    if (s_rx[0] != slave || s_rx[1] != 0x03U || s_rx[2] != (uint8_t)(2U * count))
+    if (s_rx[0] != slave || s_rx[1] != fc || s_rx[2] != (uint8_t)(2U * count))
     {
         HexDump("bad-header RX", s_rx, expected);
         return MB_ERR_FRAME;
@@ -198,31 +234,11 @@ ModbusStatus_t Modbus_ReadHoldingRegisters(uint8_t slave, uint16_t start,
 
 static void PollDevice(ModbusDevice_t *dev)
 {
-    uint8_t exc = 0;
     uint32_t t0 = HAL_GetTick();
 
-    ModbusStatus_t st = Modbus_ReadHoldingRegisters(dev->slave_id, dev->start_reg,
-                                                    dev->reg_count, s_data, &exc);
+    Modbus_SetFormat(dev->format);
+    bool ok = (dev->poll != NULL) ? dev->poll(dev) : false;
     uint32_t dt = HAL_GetTick() - t0;
-    bool ok = false;
-
-    if (st == MB_OK)
-    {
-        ok = (dev->parse == NULL) ? true : dev->parse(dev, s_data, (uint16_t)(2U * dev->reg_count));
-        if (!ok)
-        {
-            RESS_LOG("MODBUS", "%s: payload rejected by parser", dev->name);
-        }
-    }
-    else if (st == MB_ERR_EXCEPTION)
-    {
-        RESS_LOG("MODBUS", "%s: exception code 0x%02X", dev->name, exc);
-    }
-    else
-    {
-        RESS_LOG("MODBUS", "%s: poll FAILED -> %s (%lu ms)", dev->name,
-                 Modbus_StatusStr(st), (unsigned long)dt);
-    }
 
     if (ok)
     {
@@ -230,7 +246,7 @@ static void PollDevice(ModbusDevice_t *dev)
         dev->fail_streak = 0;
         if (!dev->is_online)
         {
-            RESS_LOG("MODBUS", "%s: now ONLINE", dev->name);
+            RESS_LOG("MODBUS", "%s: now ONLINE (%lu ms)", dev->name, (unsigned long)dt);
         }
         dev->is_online = true;
     }
@@ -241,11 +257,12 @@ static void PollDevice(ModbusDevice_t *dev)
         {
             dev->fail_streak++;
         }
+        RESS_LOG("MODBUS", "%s: poll FAILED (%lu ms, streak %u)", dev->name,
+                 (unsigned long)dt, (unsigned)dev->fail_streak);
         if (dev->is_online && dev->fail_streak >= MB_OFFLINE_THRESHOLD)
         {
             dev->is_online = false;
-            RESS_LOG("MODBUS", "%s: now OFFLINE after %u failures", dev->name,
-                     (unsigned)dev->fail_streak);
+            RESS_LOG("MODBUS", "%s: now OFFLINE", dev->name);
         }
     }
 }
@@ -259,7 +276,13 @@ void Modbus_Poll(void)
         uint8_t idx = (uint8_t)((s_poll_cursor + n) % s_device_count);
         ModbusDevice_t *dev = s_devices[idx];
 
-        if (!dev->has_polled || (now - dev->last_poll_tick) >= dev->poll_interval_ms)
+        uint32_t period = dev->poll_interval_ms;
+        if (!dev->is_online && dev->offline_retry_ms > period)
+        {
+            period = dev->offline_retry_ms; /* do not let a dead slave eat the bus */
+        }
+
+        if (!dev->has_polled || (now - dev->last_poll_tick) >= period)
         {
             dev->has_polled = true;
             dev->last_poll_tick = now;
