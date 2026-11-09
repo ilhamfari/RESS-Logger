@@ -18,12 +18,18 @@ typedef struct
 {
     bool              valid;
     uint32_t          seq;
+    uint32_t          epoch;
     DS3231_Time_t     time;
     bool              time_valid;
+    bool              replayed;
     bool              meter_online;
     PowerMeter_Data_t meter;
-    Inverter_Data_t   goodwe;
+    GoodWe_Data_t     goodwe;
     Inverter_Data_t   sungrow;
+    bool              gateway_health_valid;
+    int16_t           gateway_rssi;
+    uint32_t          gateway_uptime;
+    char              gateway_fw_version[16];
     uint8_t           relays;  /* bit n-1 = relay n */
     bool              sent;    /* ESP32 confirmed MQTT delivery */
 } RessSnapshot_t;

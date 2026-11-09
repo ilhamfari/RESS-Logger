@@ -188,7 +188,8 @@ static void Report_SD(void)
         printf("  Card Status       : MOUNTED\r\n");
         printf("  Total Capacity    : ~%lu MB\r\n", (unsigned long)mb);
     }
-    printf("  Log Directory     : %sGWLOGS/\r\n", USERPath);
+    printf("  Log Directory     : %sGWLOG2/\r\n", USERPath);
+    printf("  Pending Queue     : %sGWPEND/ (persistent)\r\n", USERPath);
 }
 
 static void Report_SDStatus(void)
@@ -199,8 +200,7 @@ static void Report_SDStatus(void)
 
     printf("\r\n[5] SD TRANSMISSION STATUS (MQTT Store-and-Forward):\r\n");
     printf("  Rows Confirmed MQTT: %lu rows\r\n", (unsigned long)DataLogger_GetRowsSent());
-    printf("  Rows Pending Ack   : %u rows (Window: %u max)\r\n", (unsigned)DataLogger_GetPendingCount(),
-           (unsigned)DL_PENDING_MAX);
+    printf("  Rows Pending Ack   : %u rows on SD\r\n", (unsigned)DataLogger_GetPendingCount());
 }
 
 static void Report_Relays(void)

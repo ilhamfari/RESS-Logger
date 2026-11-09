@@ -12,9 +12,12 @@
 
 static SystemConfig g_cfg;
 static uint32_t s_next_poll_epoch = 0;
-static uint32_t s_pending_poll_epoch = 0;
 static bool s_poll_pending = false;
 static uint32_t s_poll_sent_tick = 0;
+static bool s_replay_active = false;
+static bool s_replay_request_due = false;
+static bool s_publishing_replay = false;
+static bool s_last_mqtt_connected = false;
 static uint32_t s_last_led_tick = 0;
 static bool s_led_state = false;
 
@@ -23,7 +26,7 @@ static void onSnapshotReceived(const TelemetrySnapshot &snap) {
 
     /* Use the scheduler's minute bucket, not the time at which UART parsing
      * happened.  Queue latency therefore never changes :00 to :27, etc. */
-    uint32_t epoch = s_pending_poll_epoch;
+    uint32_t epoch = snap.epoch;
     if (epoch < MIN_VALID_EPOCH) {
         // Never invent a timestamp: the broker contract rejects ts < 2026-01-01.
         // No ACK is sent, so the STM32 keeps this SD row as SENT=0.
@@ -33,17 +36,29 @@ static void onSnapshotReceived(const TelemetrySnapshot &snap) {
 
     s_poll_pending = false;
 
-    // Publish telemetry to MQTT broker
-    MQTTManager::publishTelemetry(snap, epoch);
+    s_publishing_replay = snap.replayed;
+    bool published = MQTTManager::publishTelemetry(snap, epoch);
+    if (!published && snap.replayed) {
+        s_replay_request_due = true;
+        s_poll_sent_tick = millis();
+    }
 }
 
 static void onTelemetryDelivered(uint32_t seq, bool success) {
     if (success) {
         Serial.printf("[MAIN] Sending ACK to STM32 for seq=%lu\r\n", (unsigned long)seq);
         STM32UARTBridge::sendAckTelemetry(seq, true);
+        if (s_publishing_replay) s_replay_request_due = true;
     } else {
         Serial.printf("[MAIN] Telemetry delivery failed for seq=%lu, no ACK sent\r\n", (unsigned long)seq);
     }
+}
+
+static void onPendingEmpty() {
+    s_poll_pending = false;
+    s_replay_active = false;
+    s_replay_request_due = false;
+    Serial.println("[MAIN] Durable STM32 telemetry queue is empty");
 }
 
 static void onRelayCommand(uint8_t channel, uint8_t state) {
@@ -95,6 +110,7 @@ void setup() {
     STM32UARTBridge::init();
     STM32UARTBridge::setOnSnapshotReceived(onSnapshotReceived);
     STM32UARTBridge::setOnRelayAck(onRelayAck);
+    STM32UARTBridge::setOnPendingEmpty(onPendingEmpty);
     STM32UARTBridge::setOnTimeRequest([]() { NTPTimeManager::syncToSTM32(); });
 
     // Restore last saved relay states to STM32 from NVS
@@ -189,6 +205,14 @@ void loop() {
 
     uint32_t now = millis();
 
+    bool mqtt_connected = MQTTManager::isConnected();
+    if (mqtt_connected && !s_last_mqtt_connected) {
+        s_replay_active = true;
+        s_replay_request_due = true;
+        Serial.println("[MAIN] MQTT connected; starting oldest-first SD replay");
+    }
+    s_last_mqtt_connected = mqtt_connected;
+
     // Auto-reconnect WiFi if disconnected
     static uint32_t s_last_wifi_retry = 0;
     if (WiFi.status() != WL_CONNECTED && (now - s_last_wifi_retry >= 10000)) {
@@ -203,7 +227,23 @@ void loop() {
     if (interval_s == 0U) interval_s = 60U;
     uint32_t epoch_now = NTPTimeManager::getEpochSeconds();
 
-    if (g_cfg.goodwe_enabled && STM32UARTBridge::isTimeAcked() && epoch_now >= MIN_VALID_EPOCH) {
+    if (mqtt_connected && s_replay_active) {
+        if (s_poll_pending && now - s_poll_sent_tick >= 30000UL) {
+            s_poll_pending = false;
+            s_replay_request_due = true;
+            s_poll_sent_tick = now;
+            Serial.println("[MAIN] Replay response timeout; will retry");
+        }
+        if (s_replay_request_due && !s_poll_pending && now - s_poll_sent_tick >= 1000UL) {
+            s_replay_request_due = false;
+            s_poll_pending = true;
+            s_poll_sent_tick = now;
+            if (!STM32UARTBridge::requestPending()) {
+                s_poll_pending = false;
+                s_replay_request_due = true;
+            }
+        }
+    } else if (g_cfg.goodwe_enabled && STM32UARTBridge::isTimeAcked() && epoch_now >= MIN_VALID_EPOCH) {
         if (s_next_poll_epoch == 0U) {
             s_next_poll_epoch = ((epoch_now / interval_s) + 1U) * interval_s;
             Serial.printf("[MAIN] Next telemetry minute epoch=%lu\r\n",
@@ -224,12 +264,12 @@ void loop() {
                 scheduled_epoch = (epoch_now / interval_s) * interval_s;
             }
             s_next_poll_epoch = scheduled_epoch + interval_s;
-            s_pending_poll_epoch = scheduled_epoch;
             s_poll_pending = true;
             s_poll_sent_tick = now;
             Serial.printf("[MAIN] Queue telemetry for epoch=%lu (:00)\r\n",
                           (unsigned long)scheduled_epoch);
-            if (!STM32UARTBridge::requestTelemetry(scheduled_epoch)) {
+            if (!STM32UARTBridge::requestTelemetry(scheduled_epoch, (int16_t)WiFi.RSSI(),
+                                                    millis() / 1000U, FIRMWARE_VERSION)) {
                 s_poll_pending = false;
             }
         }

@@ -6,8 +6,11 @@
 #include <ArduinoJson.h>
 
 static WiFiClient s_wifi_client;
-static MQTTClient s_mqtt(4096);
+static MQTTClient s_mqtt(8192);
 static SystemConfig s_cfg;
+/* Kept out of loopTask's stack. A local 8192-byte buffer exhausted the
+ * Arduino loop task and triggered FreeRTOS's stack-overflow hook. */
+static char s_json_buffer[8192];
 
 static RelayCmdReceivedCallback s_relay_cmd_cb = nullptr;
 static TelemetryDeliveredCallback s_delivered_cb = nullptr;
@@ -62,9 +65,16 @@ struct BatchAdder {
     template <typename T>
     void operator()(const char *devId, const char *key, const T &val) const {
         JsonObject item = batch.add<JsonObject>();
-        item["deviceId"] = devId;
-        item["key"] = key;
-        item["val"] = val;
+        item["d"] = devId;
+        item["k"] = key;
+        item["v"] = val;
+    }
+
+    void nullValue(const char *devId, const char *key) const {
+        JsonObject item = batch.add<JsonObject>();
+        item["d"] = devId;
+        item["k"] = key;
+        item["v"] = nullptr;
     }
 };
 } // namespace
@@ -237,41 +247,81 @@ bool MQTTManager::publishTelemetry(const TelemetrySnapshot &snap, uint32_t epoch
     doc["v"] = CONTRACT_VERSION;
     doc["boardId"] = s_cfg.board_id;
     doc["ts"] = epoch_ts;
+    doc["seq"] = snap.seq;
 
     JsonArray batch = doc["batch"].to<JsonArray>();
 
     // Helper to add batch item
     BatchAdder addItem(batch);
 
-    // GoodWe is the only Modbus device published by this gateway.
-    if (snap.goodwe.online) {
-        if (snap.goodwe.has_vpv)    addItem("inv_goodwe_atap", "pv_voltage", snap.goodwe.vpv);
-        if (snap.goodwe.has_ipv)    addItem("inv_goodwe_atap", "pv_current", snap.goodwe.ipv);
-        if (snap.goodwe.has_ppv)    addItem("inv_goodwe_atap", "pv_power", snap.goodwe.ppv);
-        if (snap.goodwe.has_energy) addItem("inv_goodwe_atap", "pv_energy_total", snap.goodwe.energy_kwh);
-        if (snap.goodwe.has_pout)   addItem("inv_goodwe_atap", "inv_power_out", snap.goodwe.pout);
-        if (snap.goodwe.has_pload)  addItem("inv_goodwe_atap", "load_power", snap.goodwe.pload);
-        if (snap.goodwe.has_status) addItem("inv_goodwe_atap", "inv_status", snap.goodwe.status);
-        if (snap.goodwe.has_temp)   addItem("inv_goodwe_atap", "temp_internal", snap.goodwe.temp);
+    const GoodWeTelemetry &g = snap.goodwe;
+#define ADD_VAL(flag,key,value) do { if (flag) addItem("inv_gw",key,value); else addItem.nullValue("inv_gw",key); } while(0)
+    ADD_VAL(g.has_device_serial,"device_serial",g.device_serial);
+    ADD_VAL(g.has_device_type,"device_type",g.device_type);
+    ADD_VAL(g.has_error_code,"error_code",g.error_code);
+    ADD_VAL(g.has_operating_hours,"operating_hours_total",g.operating_hours_total);
+    ADD_VAL(g.has_working_status,"working_status",g.working_status);
+    ADD_VAL(g.has_grid_connection_status,"grid_connection_status",g.grid_connection_status);
+    ADD_VAL(g.has_inverter_temperature,"inverter_temperature",g.inverter_temperature);
+    ADD_VAL(g.has_mppt1_voltage,"mppt1_voltage",g.mppt1_voltage);
+    ADD_VAL(g.has_mppt1_current,"mppt1_current",g.mppt1_current);
+    ADD_VAL(g.has_mppt1_power,"mppt1_power",g.mppt1_power);
+    ADD_VAL(g.has_mppt2_voltage,"mppt2_voltage",g.mppt2_voltage);
+    ADD_VAL(g.has_mppt2_current,"mppt2_current",g.mppt2_current);
+    ADD_VAL(g.has_mppt2_power,"mppt2_power",g.mppt2_power);
+    ADD_VAL(g.has_pv_power_total,"pv_power_total",g.pv_power_total);
+    ADD_VAL(g.has_insulation_resistance,"insulation_resistance",g.insulation_resistance);
+    ADD_VAL(g.has_leakage_current,"leakage_current",g.leakage_current);
+    ADD_VAL(g.has_active_power,"active_power",g.active_power);
+    ADD_VAL(g.has_reactive_power,"reactive_power",g.reactive_power);
+    ADD_VAL(g.has_power_factor,"power_factor",g.power_factor);
+    ADD_VAL(g.has_phase_a_voltage,"phase_a_voltage",g.phase_a_voltage);
+    ADD_VAL(g.has_phase_b_voltage,"phase_b_voltage",g.phase_b_voltage);
+    ADD_VAL(g.has_phase_c_voltage,"phase_c_voltage",g.phase_c_voltage);
+    ADD_VAL(g.has_phase_a_current,"phase_a_current",g.phase_a_current);
+    ADD_VAL(g.has_phase_b_current,"phase_b_current",g.phase_b_current);
+    ADD_VAL(g.has_phase_c_current,"phase_c_current",g.phase_c_current);
+    ADD_VAL(g.has_phase_a_frequency,"phase_a_frequency",g.phase_a_frequency);
+    ADD_VAL(g.has_phase_b_frequency,"phase_b_frequency",g.phase_b_frequency);
+    ADD_VAL(g.has_phase_c_frequency,"phase_c_frequency",g.phase_c_frequency);
+    ADD_VAL(g.has_grid_frequency,"grid_frequency",g.grid_frequency);
+    ADD_VAL(g.has_line_ab_voltage,"line_ab_voltage",g.line_ab_voltage);
+    ADD_VAL(g.has_line_bc_voltage,"line_bc_voltage",g.line_bc_voltage);
+    ADD_VAL(g.has_line_ca_voltage,"line_ca_voltage",g.line_ca_voltage);
+    ADD_VAL(g.has_energy_total,"energy_total",g.energy_total);
+    ADD_VAL(g.has_energy_today,"energy_today",g.energy_today);
+#undef ADD_VAL
+
+    if (snap.gateway.valid) {
+        addItem("gw", "rssi", snap.gateway.rssi);
+        addItem("gw", "uptime", snap.gateway.uptime);
+        if (snap.gateway.fw_version[0] != '\0') addItem("gw", "fw_version", snap.gateway.fw_version);
+        else addItem.nullValue("gw", "fw_version");
+    } else {
+        addItem.nullValue("gw", "rssi");
+        addItem.nullValue("gw", "uptime");
+        addItem.nullValue("gw", "fw_version");
     }
 
-    // Board health
-    addItem("gw", "rssi", WiFi.RSSI());
-    addItem("gw", "uptime", (uint32_t)(millis() / 1000));
-    addItem("gw", "fw_version", FIRMWARE_VERSION);
-
     // Serialize
-    char json_buffer[4096];
-    size_t len = serializeJson(doc, json_buffer, sizeof(json_buffer));
+    size_t required = measureJson(doc);
+    if (required + 1U > sizeof(s_json_buffer)) {
+        Serial.printf("[MQTT] Telemetry JSON needs %u bytes; buffer is %u bytes\r\n",
+                      (unsigned)(required + 1U), (unsigned)sizeof(s_json_buffer));
+        return false;
+    }
+    size_t len = serializeJson(doc, s_json_buffer, sizeof(s_json_buffer));
 
-    if (len == 0 || len >= sizeof(json_buffer)) {
+    if (len == 0 || len >= sizeof(s_json_buffer)) {
         Serial.println("[MQTT] Telemetry JSON serialize overflow!");
         return false;
     }
 
     Serial.printf("[MQTT-TX] Topic: %s (%u bytes)\r\n", s_cfg.topic_telemetry, (unsigned)len);
     // Publish telemetry contract: Retain = false, QoS = 1
-    bool pub_ok = s_mqtt.publish(s_cfg.topic_telemetry, json_buffer, false, 1);
+    Serial.printf("[MQTT] loopTask stack high-water mark: %u bytes\r\n",
+                  (unsigned)uxTaskGetStackHighWaterMark(nullptr));
+    bool pub_ok = s_mqtt.publish(s_cfg.topic_telemetry, s_json_buffer, false, 1);
 
     if (pub_ok) {
         Serial.printf("[MQTT] Batch telemetry successfully published (seq=%lu)!\r\n",

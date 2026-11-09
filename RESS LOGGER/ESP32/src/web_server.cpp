@@ -249,14 +249,12 @@ function updateDashboard() {
       if (d.goodwe.online) {
         gwStat.innerHTML = "<span class='badge-on'>ONLINE</span>";
         var g = '';
-        if (d.goodwe.has_vpv) g += 'Vpv=' + d.goodwe.vpv.toFixed(1) + ' V, ';
-        if (d.goodwe.has_ipv) g += 'Ipv=' + d.goodwe.ipv.toFixed(2) + ' A, ';
-        if (d.goodwe.has_ppv) g += 'Ppv=' + d.goodwe.ppv.toFixed(0) + ' W, ';
-        if (d.goodwe.has_energy) g += 'Energy=' + d.goodwe.energy.toFixed(1) + ' kWh, ';
-        if (d.goodwe.has_pout) g += 'Pout=' + d.goodwe.pout.toFixed(0) + ' W, ';
-        if (d.goodwe.has_pload) g += 'Pload=' + d.goodwe.pload.toFixed(0) + ' W, ';
-        if (d.goodwe.has_temp) g += 'Temp=' + d.goodwe.temp.toFixed(1) + ' C, ';
-        if (d.goodwe.has_status) g += 'Status=' + d.goodwe.status;
+        if (d.goodwe.has_mppt1_voltage) g += 'MPPT1=' + d.goodwe.mppt1_voltage.toFixed(1) + ' V, ';
+        if (d.goodwe.has_pv_power_total) g += 'PV=' + d.goodwe.pv_power_total.toFixed(0) + ' W, ';
+        if (d.goodwe.has_energy_total) g += 'Energy=' + d.goodwe.energy_total.toFixed(1) + ' kWh, ';
+        if (d.goodwe.has_active_power) g += 'AC=' + d.goodwe.active_power.toFixed(0) + ' W, ';
+        if (d.goodwe.has_inverter_temperature) g += 'Temp=' + d.goodwe.inverter_temperature.toFixed(1) + ' C, ';
+        if (d.goodwe.has_working_status) g += 'Status=' + d.goodwe.working_status;
         gwMet.textContent = g;
       } else {
         gwStat.innerHTML = "<span class='badge-off'>OFFLINE</span>";
@@ -655,22 +653,18 @@ void WebServerManager::handleApiStatus() {
     // GoodWe
     JsonObject gw = doc["goodwe"].to<JsonObject>();
     gw["online"] = snap.goodwe.online;
-    gw["has_vpv"] = snap.goodwe.has_vpv;
-    gw["vpv"] = snap.goodwe.vpv;
-    gw["has_ipv"] = snap.goodwe.has_ipv;
-    gw["ipv"] = snap.goodwe.ipv;
-    gw["has_ppv"] = snap.goodwe.has_ppv;
-    gw["ppv"] = snap.goodwe.ppv;
-    gw["has_energy"] = snap.goodwe.has_energy;
-    gw["energy"] = snap.goodwe.energy_kwh;
-    gw["has_pout"] = snap.goodwe.has_pout;
-    gw["pout"] = snap.goodwe.pout;
-    gw["has_pload"] = snap.goodwe.has_pload;
-    gw["pload"] = snap.goodwe.pload;
-    gw["has_status"] = snap.goodwe.has_status;
-    gw["status"] = snap.goodwe.status;
-    gw["has_temp"] = snap.goodwe.has_temp;
-    gw["temp"] = snap.goodwe.temp;
+    gw["has_mppt1_voltage"] = snap.goodwe.has_mppt1_voltage;
+    gw["mppt1_voltage"] = snap.goodwe.mppt1_voltage;
+    gw["has_pv_power_total"] = snap.goodwe.has_pv_power_total;
+    gw["pv_power_total"] = snap.goodwe.pv_power_total;
+    gw["has_energy_total"] = snap.goodwe.has_energy_total;
+    gw["energy_total"] = snap.goodwe.energy_total;
+    gw["has_active_power"] = snap.goodwe.has_active_power;
+    gw["active_power"] = snap.goodwe.active_power;
+    gw["has_working_status"] = snap.goodwe.has_working_status;
+    gw["working_status"] = snap.goodwe.working_status;
+    gw["has_inverter_temperature"] = snap.goodwe.has_inverter_temperature;
+    gw["inverter_temperature"] = snap.goodwe.inverter_temperature;
 
     String jsonStr;
     jsonStr.reserve(1024);

@@ -147,10 +147,10 @@ static void HandleFrame(char *line)
 
     RESS_LOG("ESP", "RX %s", line);
 
-    char *tok[12];
+    char *tok[16];
     size_t nt = 0;
     char *p = line;
-    while (nt < 12U)
+    while (nt < 16U)
     {
         tok[nt++] = p;
         char *comma = strchr(p, ',');
@@ -167,8 +167,15 @@ static void HandleFrame(char *line)
         if (s_h.on_req_tele != NULL)
         {
             uint32_t scheduled_epoch = (nt >= 3U) ? (uint32_t)strtoul(tok[2], NULL, 10) : 0U;
-            s_h.on_req_tele(scheduled_epoch);
+            int16_t rssi = (nt >= 4U) ? (int16_t)strtol(tok[3], NULL, 10) : 0;
+            uint32_t uptime = (nt >= 5U) ? (uint32_t)strtoul(tok[4], NULL, 10) : 0U;
+            const char *fw = (nt >= 6U) ? tok[5] : "";
+            s_h.on_req_tele(scheduled_epoch, rssi, uptime, fw);
         }
+    }
+    else if (strcmp(tok[0], "REQ") == 0 && nt >= 2U && strcmp(tok[1], "PENDING") == 0)
+    {
+        if (s_h.on_req_pending != NULL) s_h.on_req_pending();
     }
     else if (strcmp(tok[0], "CMD") == 0 && nt >= 4U && strcmp(tok[1], "RELAY") == 0)
     {
@@ -293,10 +300,31 @@ bool ESP_Bridge_SendReqTime(void)
     return SendFrame("REQ,TIME");
 }
 
+bool ESP_Bridge_SendPendingNone(void)
+{
+    return s_huart != NULL && SendFrame("ACK,PENDING,NONE");
+}
+
+static bool SendGroup(const char *name, uint32_t seq, char *field[], size_t first, size_t count)
+{
+    char payload[TX_BUF_SIZE];
+    int n = snprintf(payload, sizeof(payload), "DATA,%s,%lu", name, (unsigned long)seq);
+    if (n <= 0 || (size_t)n >= sizeof(payload)) return false;
+    size_t pos = (size_t)n;
+    for (size_t i = 0U; i < count; i++)
+    {
+        n = snprintf(&payload[pos], sizeof(payload) - pos, ",%s", field[first + i]);
+        if (n <= 0 || pos + (size_t)n >= sizeof(payload)) return false;
+        pos += (size_t)n;
+    }
+    return SendFrame(payload);
+}
+
 bool ESP_Bridge_SendSnapshot(const RessSnapshot_t *s)
 {
-    char fields[200];
-    char payload[240];
+    char fields[GOODWE_FIELD_COUNT * 25U];
+    char *field[GOODWE_FIELD_COUNT];
+    char payload[TX_BUF_SIZE];
     bool ok = true;
 
     if (s_huart == NULL)
@@ -304,15 +332,35 @@ bool ESP_Bridge_SendSnapshot(const RessSnapshot_t *s)
         return false;
     }
 
-    /* GoodWe */
-    if (s->goodwe.online)
+    if (GoodWe_FormatFields(fields, sizeof(fields), &s->goodwe) < 0) return false;
+    char *p = fields;
+    for (size_t i = 0U; i < GOODWE_FIELD_COUNT; i++)
     {
-        Inverter_FormatFields(fields, sizeof(fields), &s->goodwe);
-        snprintf(payload, sizeof(payload), "DATA,GOODWE,%lu,%s", (unsigned long)s->seq, fields);
+        field[i] = p;
+        char *comma = strchr(p, ',');
+        if (comma != NULL) { *comma = '\0'; p = comma + 1; }
+        else if (i + 1U != GOODWE_FIELD_COUNT) return false;
+    }
+
+    snprintf(payload, sizeof(payload), "DATA,BEGIN,%lu,%lu,%u", (unsigned long)s->seq,
+             (unsigned long)s->epoch, s->replayed ? 1U : 0U);
+    ok &= SendFrame(payload);
+    ok &= SendGroup("GWID", s->seq, field, 0U, 2U);
+    ok &= SendGroup("GWSTATUS", s->seq, field, 2U, 5U);
+    ok &= SendGroup("GWDC", s->seq, field, 7U, 9U);
+    ok &= SendGroup("GWAC1", s->seq, field, 16U, 9U);
+    ok &= SendGroup("GWAC2", s->seq, field, 25U, 7U);
+    ok &= SendGroup("GWENERGY", s->seq, field, 32U, 2U);
+
+    if (s->gateway_health_valid)
+    {
+        snprintf(payload, sizeof(payload), "DATA,GWHEALTH,%lu,%d,%lu,%s", (unsigned long)s->seq,
+                 (int)s->gateway_rssi, (unsigned long)s->gateway_uptime,
+                 s->gateway_fw_version[0] != '\0' ? s->gateway_fw_version : "NA");
     }
     else
     {
-        snprintf(payload, sizeof(payload), "DATA,GOODWE,%lu,NA", (unsigned long)s->seq);
+        snprintf(payload, sizeof(payload), "DATA,GWHEALTH,%lu,NA,NA,NA", (unsigned long)s->seq);
     }
     ok &= SendFrame(payload);
 

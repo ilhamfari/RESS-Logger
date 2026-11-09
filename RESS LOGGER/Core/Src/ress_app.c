@@ -20,6 +20,7 @@ static uint32_t        s_sync_tick;
 static uint32_t        s_last_time_req;
 
 static RessSnapshot_t  s_snap;      /* most recent snapshot */
+static RessSnapshot_t  s_replay_snap;
 static uint32_t        s_last_seq;
 
 #define UNIX_EPOCH_2026_UTC  1767225600UL
@@ -175,7 +176,8 @@ static uint32_t NextSeq(const DS3231_Time_t *timestamp)
     return seq;
 }
 
-static void TakeSnapshot(uint32_t scheduled_epoch)
+static void TakeSnapshot(uint32_t scheduled_epoch, int16_t rssi, uint32_t uptime,
+                         const char *fw_version)
 {
     RessSnapshot_t *s = &s_snap;
     memset(s, 0, sizeof(*s));
@@ -187,10 +189,22 @@ static void TakeSnapshot(uint32_t scheduled_epoch)
     /* CSV and MQTT timestamps are minute buckets, even when execution of the
      * queued task happens several seconds late. */
     s->time.second = 0U;
+    if (scheduled_epoch == 0U && s_time_valid)
+    {
+        scheduled_epoch = UNIX_EPOCH_2026_UTC + SecondsSince2026(&s->time);
+    }
     s->seq = NextSeq(&s->time);
+    s->epoch = scheduled_epoch;
     s->time_valid = s_time_valid;
     GoodWe_GetLatest(&s->goodwe);
     s->relays = Relay_GetMask();
+    if (fw_version != NULL && fw_version[0] != '\0')
+    {
+        s->gateway_health_valid = true;
+        s->gateway_rssi = rssi;
+        s->gateway_uptime = uptime;
+        snprintf(s->gateway_fw_version, sizeof(s->gateway_fw_version), "%s", fw_version);
+    }
     s->sent = false;
 
     RESS_LOG("APP", "snapshot seq=%lu goodwe=%d relays=0x%X", (unsigned long)s->seq,
@@ -199,9 +213,10 @@ static void TakeSnapshot(uint32_t scheduled_epoch)
 
 /* Take a snapshot and log it to SD. Offline devices are written as NA, so a
  * row is written whenever the clock is valid. */
-static bool SnapshotAndLog(uint32_t scheduled_epoch)
+static bool SnapshotAndLog(uint32_t scheduled_epoch, int16_t rssi, uint32_t uptime,
+                           const char *fw_version)
 {
-    TakeSnapshot(scheduled_epoch);
+    TakeSnapshot(scheduled_epoch, rssi, uptime, fw_version);
     return DataLogger_WriteSnapshot(&s_snap);
 }
 
@@ -209,7 +224,8 @@ static bool SnapshotAndLog(uint32_t scheduled_epoch)
 /* ESP32 bridge handlers                                                      */
 /* ------------------------------------------------------------------------- */
 
-static void OnReqTele(uint32_t scheduled_epoch)
+static void OnReqTele(uint32_t scheduled_epoch, int16_t rssi, uint32_t uptime,
+                      const char *fw_version)
 {
     if (!GoodWe_IsEnabled())
     {
@@ -219,8 +235,27 @@ static void OnReqTele(uint32_t scheduled_epoch)
 
     /* The ESP32 poll interval (Telemetry Send Interval) is the log interval:
      * every request = one fresh snapshot = one SD row = one telemetry batch. */
-    (void)SnapshotAndLog(scheduled_epoch);
-    (void)ESP_Bridge_SendSnapshot(&s_snap);
+    if (SnapshotAndLog(scheduled_epoch, rssi, uptime, fw_version))
+    {
+        (void)ESP_Bridge_SendSnapshot(&s_snap);
+    }
+    else
+    {
+        RESS_LOG("APP", "telemetry not sent because durable SD write failed");
+    }
+}
+
+static void OnReqPending(void)
+{
+    if (DataLogger_LoadOldestPending(&s_replay_snap))
+    {
+        RESS_LOG("APP", "replaying oldest pending seq=%lu", (unsigned long)s_replay_snap.seq);
+        (void)ESP_Bridge_SendSnapshot(&s_replay_snap);
+    }
+    else
+    {
+        (void)ESP_Bridge_SendPendingNone();
+    }
 }
 
 static int OnCmdRelay(uint8_t channel, uint8_t state)
@@ -274,6 +309,7 @@ static bool OnCmdTime(uint16_t year, uint8_t month, uint8_t date,
 static const ESP_Handlers_t s_handlers =
 {
     .on_req_tele = OnReqTele,
+    .on_req_pending = OnReqPending,
     .on_cmd_relay = OnCmdRelay,
     .on_cmd_goodwe = OnCmdGoodWe,
     .on_ack_tele = OnAckTele,
@@ -328,15 +364,15 @@ void RESS_App_PrintMeter(void)
 
 void RESS_App_PrintInverters(void)
 {
-    Inverter_Data_t d;
+    GoodWe_Data_t d;
     GoodWe_GetLatest(&d);
-    Inverter_PrintDebug("GOODWE", &d);
+    GoodWe_PrintDebug(&d);
     RESS_LOG("RELAY", "mask=0x%X", (unsigned)Relay_GetMask());
 }
 
 void RESS_App_LogNow(void)
 {
-    (void)SnapshotAndLog(0U);
+    (void)SnapshotAndLog(0U, 0, 0U, NULL);
 }
 
 bool RESS_App_SetRelay(uint8_t channel, bool on)
@@ -368,7 +404,7 @@ bool RESS_App_SetTime(uint16_t year, uint8_t month, uint8_t date,
 
 void RESS_App_GetDeviceStatus(bool *meter_on, bool *goodwe_on, bool *sungrow_on)
 {
-    Inverter_Data_t g;
+    GoodWe_Data_t g;
 
     GoodWe_GetLatest(&g);
 

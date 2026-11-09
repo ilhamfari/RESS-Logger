@@ -4,11 +4,13 @@
   *          Frames: '$' <payload> '*' <XX> "\r\n", XX = two hex digits,
   *          XOR of every character between '$' and '*'.
   *
-  *   ESP32 -> STM32:  $REQ,TELE,<epoch>    request a scheduled telemetry batch
+  *   ESP32 -> STM32:  $REQ,TELE,<epoch>,<rssi>,<uptime>,<fw>
+  *                    $REQ,PENDING         request oldest durable unsent row
   *                    $CMD,RELAY,<ch>,<s>  set relay ch(1..4) to s(0/1)
   *                    $CMD,GOODWE,<s>      enable/disable GoodWe acquisition
   *                    $ACK,TELE,<seq>,SUCCESS  MQTT PUBACK received
-  *   STM32 -> ESP32:  $DATA,GOODWE|RELAY|END,<seq>,...
+  *   STM32 -> ESP32:  $DATA,BEGIN|GWID|GWSTATUS|GWDC|GWAC1|GWAC2|GWENERGY|GWHEALTH|RELAY|END,...
+  *                    $ACK,PENDING,NONE
   *                    $ACK,RELAY,<ch>,<s>
   *                    $ERR,<what>,<reason>
   *
@@ -32,7 +34,9 @@ typedef struct
 {
     /** Request one snapshot for the scheduled UTC epoch.  A value of zero is
      *  accepted for compatibility with older ESP32 firmware. */
-    void (*on_req_tele)(uint32_t scheduled_epoch);
+    void (*on_req_tele)(uint32_t scheduled_epoch, int16_t rssi,
+                        uint32_t uptime, const char *fw_version);
+    void (*on_req_pending)(void);
     /** Apply a relay command; return the resulting state, or -1 if invalid. */
     int  (*on_cmd_relay)(uint8_t channel, uint8_t state);
     void (*on_cmd_goodwe)(bool enabled);
@@ -50,8 +54,11 @@ void ESP_Bridge_Process(void);
 /** Ask the ESP32 for the NTP time ($REQ,TIME); it replies with $CMD,TIME. */
 bool ESP_Bridge_SendReqTime(void);
 
-/** Send the GoodWe-only $DATA batch (GOODWE, RELAY, END). */
+/** Send one complete GoodWe batch. Invalid values are transmitted as NA. */
 bool ESP_Bridge_SendSnapshot(const RessSnapshot_t *snap);
+
+/** Tell ESP32 that the persistent replay queue is empty. */
+bool ESP_Bridge_SendPendingNone(void);
 
 #ifdef __cplusplus
 }

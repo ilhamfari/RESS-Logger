@@ -4,7 +4,7 @@
 
 // Firmware & Contract Information
 #define FIRMWARE_VERSION       "0.1.0"
-#define CONTRACT_VERSION       1
+#define CONTRACT_VERSION       2
 
 // Hardware UART Pins for STM32 Link (From PCB Schematic)
 // STM32 PD8 (USART3 TX) connects to ESP32 Pin 11 (GPIO 18)

@@ -1,10 +1,8 @@
 /**
   * @file    datalogger.h
-  * @brief   SD card CSV datalogger with store-and-forward tracking.
-  *          One file per day under 0:/GWLOGS/ named YYYYMMDD.CSV (FatFs has
-  *          no long file names, so the 8.3 form is used). One row per
-  *          snapshot, last column SENT = 0 until the ESP32 confirms MQTT
-  *          delivery, then DataLogger_MarkSent() rewrites it to 1 in place.
+  * @brief   SD card CSV datalogger with persistent store-and-forward.
+  *          Daily CSV files live under 0:/GWLOG2/. Each unsent row also has
+  *          a durable queue record under 0:/GWPEND/ so replay survives reset.
   */
 
 #ifndef DATALOGGER_H
@@ -19,8 +17,6 @@ extern "C" {
 #endif
 
 #define DL_REMOUNT_RETRY_MS       10000U
-#define DL_PENDING_MAX            8U     /* rows whose SENT flag can still be updated */
-
 void DataLogger_Init(void);
 
 /** Append one row (SENT=0). Mounts the card if needed. */
@@ -28,6 +24,9 @@ bool DataLogger_WriteSnapshot(const RessSnapshot_t *snap);
 
 /** Rewrite SENT to 1 for a previously written row. */
 bool DataLogger_MarkSent(uint32_t seq);
+
+/** Load the oldest durable unsent snapshot. Returns false when the queue is empty. */
+bool DataLogger_LoadOldestPending(RessSnapshot_t *out);
 
 uint32_t DataLogger_GetRowsWritten(void);
 uint32_t DataLogger_GetRowsSent(void);
