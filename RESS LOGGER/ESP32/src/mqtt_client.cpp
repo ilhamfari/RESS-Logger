@@ -58,23 +58,15 @@ static void probeBroker(const char *host, uint16_t port) {
 }
 
 namespace {
-struct BatchAdder {
-    JsonArray &batch;
-    explicit BatchAdder(JsonArray &b) : batch(b) {}
+struct DataAdder {
+    JsonArray &data;
+    explicit DataAdder(JsonArray &a) : data(a) {}
 
     template <typename T>
-    void operator()(const char *devId, const char *key, const T &val) const {
-        JsonObject item = batch.add<JsonObject>();
-        item["d"] = devId;
+    void operator()(const char *key, const T &val) const {
+        JsonObject item = data.add<JsonObject>();
         item["k"] = key;
         item["v"] = val;
-    }
-
-    void nullValue(const char *devId, const char *key) const {
-        JsonObject item = batch.add<JsonObject>();
-        item["d"] = devId;
-        item["k"] = key;
-        item["v"] = nullptr;
     }
 };
 } // namespace
@@ -246,16 +238,20 @@ bool MQTTManager::publishTelemetry(const TelemetrySnapshot &snap, uint32_t epoch
     JsonDocument doc;
     doc["v"] = CONTRACT_VERSION;
     doc["boardId"] = s_cfg.board_id;
-    doc["ts"] = epoch_ts;
-    doc["seq"] = snap.seq;
+    char seq_text[16];
+    snprintf(seq_text, sizeof(seq_text), "%lu", (unsigned long)snap.seq);
+    doc["seq"] = seq_text;
 
     JsonArray batch = doc["batch"].to<JsonArray>();
 
-    // Helper to add batch item
-    BatchAdder addItem(batch);
+    JsonObject inverter = batch.add<JsonObject>();
+    inverter["d"] = "inv_gw";
+    inverter["ts"] = epoch_ts;
+    JsonArray inverter_data = inverter["data"].to<JsonArray>();
+    DataAdder addInverter(inverter_data);
 
     const GoodWeTelemetry &g = snap.goodwe;
-#define ADD_VAL(flag,key,value) do { if (flag) addItem("inv_gw",key,value); else addItem.nullValue("inv_gw",key); } while(0)
+#define ADD_VAL(flag,key,value) do { if (flag) addInverter(key,value); } while(0)
     ADD_VAL(g.has_device_serial,"device_serial",g.device_serial);
     ADD_VAL(g.has_device_type,"device_type",g.device_type);
     ADD_VAL(g.has_error_code,"error_code",g.error_code);
@@ -292,15 +288,30 @@ bool MQTTManager::publishTelemetry(const TelemetrySnapshot &snap, uint32_t epoch
     ADD_VAL(g.has_energy_today,"energy_today",g.energy_today);
 #undef ADD_VAL
 
+    if (inverter_data.size() == 0U) {
+        batch.remove(0U);
+    }
+
     if (snap.gateway.valid) {
-        addItem("gw", "rssi", snap.gateway.rssi);
-        addItem("gw", "uptime", snap.gateway.uptime);
-        if (snap.gateway.fw_version[0] != '\0') addItem("gw", "fw_version", snap.gateway.fw_version);
-        else addItem.nullValue("gw", "fw_version");
-    } else {
-        addItem.nullValue("gw", "rssi");
-        addItem.nullValue("gw", "uptime");
-        addItem.nullValue("gw", "fw_version");
+        JsonObject gateway = batch.add<JsonObject>();
+        gateway["d"] = "gw";
+        gateway["ts"] = epoch_ts;
+        JsonArray gateway_data = gateway["data"].to<JsonArray>();
+        DataAdder addGateway(gateway_data);
+        addGateway("rssi", snap.gateway.rssi);
+        addGateway("uptime", snap.gateway.uptime);
+        if (snap.gateway.fw_version[0] != '\0') {
+            addGateway("fw_version", snap.gateway.fw_version);
+        }
+    }
+
+    /* A completely invalid snapshot contains nothing useful for the website.
+     * Treat it as processed so one empty SD row cannot block replay forever. */
+    if (batch.size() == 0U) {
+        Serial.printf("[MQTT] seq=%lu has no valid values; MQTT publish skipped\r\n",
+                      (unsigned long)snap.seq);
+        if (s_delivered_cb) s_delivered_cb(snap.seq, true);
+        return true;
     }
 
     // Serialize

@@ -9,6 +9,7 @@
 #include "mqtt_client.h"
 #include "web_server.h"
 #include "display_status.h"
+#include "gateway_wifi.h"
 
 static SystemConfig g_cfg;
 static uint32_t s_next_poll_epoch = 0;
@@ -128,57 +129,17 @@ void setup() {
     delay(30);
     STM32UARTBridge::sendGoodWeEnable(g_cfg.goodwe_enabled);
 
-    // 3. Connect to WiFi
-    WiFi.mode(WIFI_STA);
-    WiFi.begin(g_cfg.wifi_ssid, g_cfg.wifi_pass);
-    Serial.printf("[WIFI] Connecting to '%s'...", g_cfg.wifi_ssid);
-
-    uint32_t start_attempt = millis();
-    bool wifi_connected = false;
-    while (millis() - start_attempt < 12000) {
-        if (WiFi.status() == WL_CONNECTED) {
-            wifi_connected = true;
-            break;
-        }
-        delay(500);
-        Serial.print(".");
-    }
-
-    if (wifi_connected) {
-        Serial.println("\r\n[WIFI] Connected! IP: " + WiFi.localIP().toString());
-        WiFi.setSleep(false);          // modem sleep causes flaky long-lived TCP/MQTT sessions
-        WiFi.setAutoReconnect(true);
-        digitalWrite(LED_PIN, HIGH);
-    } else {
-        Serial.println("\r\n[WIFI] Failed to connect! Starting fallback Access Point...");
-        WiFi.mode(WIFI_AP_STA);
-        WiFi.softAP(DEFAULT_AP_SSID, DEFAULT_AP_PASS);
-        Serial.printf("[AP] SSID: %s, IP: %s\r\n", DEFAULT_AP_SSID, WiFi.softAPIP().toString().c_str());
-    }
+    // 3. Keep the configuration AP available while the station connects in
+    // the background with bounded attempts and exponential retry backoff.
+    GatewayWiFi::init(g_cfg);
 
     // 4. Start mDNS
     if (MDNS.begin("ress-gateway")) {
         Serial.println("[MDNS] Responder started: http://ress-gateway.local");
     }
 
-    // 5. Setup NTP & Initial Time Sync
+    // 5. Setup background NTP synchronization
     NTPTimeManager::init();
-    if (wifi_connected) {
-        Serial.print("[NTP] Waiting for NTP sync...");
-        uint32_t t0 = millis();
-        while (millis() - t0 < 3000) {
-            if (NTPTimeManager::isTimeSynchronized()) {
-                Serial.println(" OK!");
-                NTPTimeManager::syncToSTM32();
-                break;
-            }
-            delay(200);
-            Serial.print(".");
-        }
-        if (!NTPTimeManager::isTimeSynchronized()) {
-            Serial.println(" Pending (will auto-sync in background).");
-        }
-    }
 
     // 6. Setup MQTT
     MQTTManager::init(g_cfg);
@@ -198,6 +159,7 @@ void setup() {
 void loop() {
     // Process core event loops
     STM32UARTBridge::process();
+    GatewayWiFi::process();
     MQTTManager::process();
     WebServerManager::process();
     NTPTimeManager::process();
@@ -212,14 +174,6 @@ void loop() {
         Serial.println("[MAIN] MQTT connected; starting oldest-first SD replay");
     }
     s_last_mqtt_connected = mqtt_connected;
-
-    // Auto-reconnect WiFi if disconnected
-    static uint32_t s_last_wifi_retry = 0;
-    if (WiFi.status() != WL_CONNECTED && (now - s_last_wifi_retry >= 10000)) {
-        s_last_wifi_retry = now;
-        Serial.printf("[WIFI] Reconnecting to '%s'...\r\n", g_cfg.wifi_ssid);
-        WiFi.reconnect();
-    }
 
     // Wall-clock scheduler: execute from the cooperative task queue, while
     // preserving the intended HH:MM:00 timestamp if servicing is delayed.

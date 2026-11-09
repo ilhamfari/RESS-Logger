@@ -3,6 +3,7 @@
 #include "ntp_time.h"
 #include "mqtt_client.h"
 #include "stm32_uart.h"
+#include "gateway_wifi.h"
 #include <WebServer.h>
 #include <WiFi.h>
 #include <ArduinoJson.h>
@@ -364,6 +365,10 @@ void WebServerManager::handleSettings() {
     bool is_sta = (WiFi.status() == WL_CONNECTED);
     int rssi = is_sta ? WiFi.RSSI() : 0;
     String ip_str = is_sta ? WiFi.localIP().toString() : WiFi.softAPIP().toString();
+    String mode_str = is_sta ? "AP + Station (Connected)"
+                             : (GatewayWiFi::isConnecting()
+                                    ? "AP + Station (Connecting)"
+                                    : "AP + Station (Retry Wait)");
 
     String rssi_str = is_sta ? (String(rssi) + " dBm") : "N/A";
     if (is_sta) {
@@ -386,7 +391,7 @@ void WebServerManager::handleSettings() {
     html += "<div class='info-card'>";
     html += "<div><b>Device IP:</b> " + ip_str + "</div>";
     html += "<div><b>WiFi Signal:</b> " + rssi_str + "</div>";
-    html += "<div><b>Current Mode:</b> " + String(is_sta ? "Station (STA)" : "Access Point (AP)") + "</div>";
+    html += "<div><b>Current Mode:</b> " + mode_str + "</div>";
     html += "</div>";
 
     html += "<form method='POST' action='/settings'>";
@@ -472,12 +477,24 @@ void WebServerManager::handleSettings() {
             "  stat.textContent = 'Scanning available WiFi networks, please wait...';\n"
             "  tbl.style.display = 'none';\n"
             "  list.innerHTML = '';\n"
+            "  pollWifiScan();\n"
+            "}\n"
+            "function pollWifiScan() {\n"
+            "  var btn = document.getElementById('btn-scan');\n"
+            "  var stat = document.getElementById('scan-status');\n"
+            "  var tbl = document.getElementById('scan-table');\n"
+            "  var list = document.getElementById('scan-list');\n"
             "  fetch('/api/wifi-scan')\n"
             "    .then(function(r) {\n"
+            "      if (r.status === 202) {\n"
+            "        setTimeout(pollWifiScan, 1000);\n"
+            "        return null;\n"
+            "      }\n"
             "      if (!r.ok) throw new Error('Scan failed');\n"
             "      return r.json();\n"
             "    })\n"
             "    .then(function(nets) {\n"
+            "      if (nets === null) return;\n"
             "      btn.disabled = false;\n"
             "      btn.textContent = '🔍 Scan WiFi';\n"
             "      if (!nets || nets.length === 0) {\n"
@@ -673,14 +690,19 @@ void WebServerManager::handleApiStatus() {
 }
 
 void WebServerManager::handleWifiScan() {
-    wifi_mode_t curMode = WiFi.getMode();
-    if (curMode == WIFI_MODE_NULL || curMode == WIFI_MODE_AP) {
-        WiFi.mode(WIFI_MODE_APSTA);
+    int16_t n = GatewayWiFi::scanComplete();
+
+    if (n == WIFI_SCAN_RUNNING) {
+        s_server.send(202, "application/json", "{\"status\":\"scanning\"}");
+        return;
     }
 
-    int n = WiFi.scanNetworks();
-    if (n < 0) {
-        s_server.send(500, "application/json", "[]");
+    if (n == WIFI_SCAN_FAILED) {
+        if (GatewayWiFi::requestScan()) {
+            s_server.send(202, "application/json", "{\"status\":\"scanning\"}");
+        } else {
+            s_server.send(503, "application/json", "{\"status\":\"error\",\"error\":\"scan start failed\"}");
+        }
         return;
     }
 
@@ -694,11 +716,10 @@ void WebServerManager::handleWifiScan() {
         item["secure"] = (WiFi.encryptionType(i) != WIFI_AUTH_OPEN);
         item["channel"] = WiFi.channel(i);
     }
-    WiFi.scanDelete();
-
     String response;
     response.reserve(1024);
     serializeJson(doc, response);
+    GatewayWiFi::deleteScanResults();
     s_server.send(200, "application/json", response);
 }
 

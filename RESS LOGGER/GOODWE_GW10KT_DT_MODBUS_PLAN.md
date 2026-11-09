@@ -227,9 +227,10 @@ new directory, filename convention, or explicit schema-version column.
 
 ## Implemented MQTT contract
 
-The IoT/backend team approved compact batch-item names in contract version 2.
-Each item uses `d` (device ID), `k` (parameter key), and `v` (value). The
-GoodWe device ID is `inv_gw`; gateway health continues to use `gw`.
+The IoT/backend team approved the grouped device structure in contract version
+3. Each batch entry uses `d` (device ID), `ts` (the device snapshot timestamp),
+and `data`. Each valid measurement in `data` uses `k` and `v`. The GoodWe
+device ID is `inv_gw`; gateway health continues to use `gw`.
 
 Default topic pattern:
 
@@ -237,57 +238,88 @@ Default topic pattern:
 ress/<boardId>/telemetry
 ```
 
-Every payload contains all 34 inverter parameters plus all three gateway
-health parameters. A missing, failed, or unsupported value remains present
-with `"v": null`; it is never silently omitted and never replaced by zero.
-The contract version is `2`.
+Every valid parameter is included. Missing, failed, unsupported, CSV `NA`, and
+internal null values are omitted from MQTT; they are never replaced by zero.
+The contract version is `3`, and `seq` is encoded as a JSON string.
 
-Payload shape:
+### Field-completeness guarantee
+
+The firmware evaluates every field received from the STM32, not only the
+fields shown in a short UI example.
+
+| Device | Category | Available keys |
+|---|---|---:|
+| `inv_gw` | Identity | 2 |
+| `inv_gw` | Status | 5 |
+| `inv_gw` | DC and MPPT | 9 |
+| `inv_gw` | AC | 16 |
+| `inv_gw` | Energy | 2 |
+| **`inv_gw` total** | | **34** |
+| `gw` | Gateway health | **3** |
+
+If all values are valid, `inv_gw.data` contains all 34 GoodWe keys. If one
+value is invalid, only that key is omitted and all other valid keys remain.
+CSV still contains every fixed column and writes invalid values as `NA`.
+
+### Complete payload example
+
+In this example, `line_ca_voltage` is assumed invalid. It is therefore the
+only GoodWe key omitted; the other 33 GoodWe keys are present.
 
 ```json
 {
-  "v": 2,
+  "v": 3,
   "boardId": "RB261107RFT001",
-  "ts": 1794096000,
-  "seq": 26993700,
+  "seq": "26993700",
   "batch": [
-    {"d": "inv_gw", "k": "device_serial", "v": "GW10KTDT261107001"},
-    {"d": "inv_gw", "k": "device_type", "v": "GW10KT-DT"},
-    {"d": "inv_gw", "k": "error_code", "v": 0},
-    {"d": "inv_gw", "k": "operating_hours_total", "v": 12580},
-    {"d": "inv_gw", "k": "working_status", "v": "on_grid"},
-    {"d": "inv_gw", "k": "grid_connection_status", "v": "connected"},
-    {"d": "inv_gw", "k": "inverter_temperature", "v": 42.1},
-    {"d": "inv_gw", "k": "mppt1_voltage", "v": 512.3},
-    {"d": "inv_gw", "k": "mppt1_current", "v": 8.4},
-    {"d": "inv_gw", "k": "mppt1_power", "v": 4303.3},
-    {"d": "inv_gw", "k": "mppt2_voltage", "v": 509.8},
-    {"d": "inv_gw", "k": "mppt2_current", "v": 7.9},
-    {"d": "inv_gw", "k": "mppt2_power", "v": 4027.4},
-    {"d": "inv_gw", "k": "pv_power_total", "v": 8330.7},
-    {"d": "inv_gw", "k": "insulation_resistance", "v": 15.6},
-    {"d": "inv_gw", "k": "leakage_current", "v": 12.5},
-    {"d": "inv_gw", "k": "active_power", "v": 8010},
-    {"d": "inv_gw", "k": "reactive_power", "v": 810},
-    {"d": "inv_gw", "k": "power_factor", "v": 0.995},
-    {"d": "inv_gw", "k": "phase_a_voltage", "v": 230.2},
-    {"d": "inv_gw", "k": "phase_b_voltage", "v": 229.8},
-    {"d": "inv_gw", "k": "phase_c_voltage", "v": 231.1},
-    {"d": "inv_gw", "k": "phase_a_current", "v": 11.7},
-    {"d": "inv_gw", "k": "phase_b_current", "v": 11.6},
-    {"d": "inv_gw", "k": "phase_c_current", "v": 11.8},
-    {"d": "inv_gw", "k": "phase_a_frequency", "v": 50.01},
-    {"d": "inv_gw", "k": "phase_b_frequency", "v": 50.02},
-    {"d": "inv_gw", "k": "phase_c_frequency", "v": 50.01},
-    {"d": "inv_gw", "k": "grid_frequency", "v": 50.01},
-    {"d": "inv_gw", "k": "line_ab_voltage", "v": 398.4},
-    {"d": "inv_gw", "k": "line_bc_voltage", "v": 399.1},
-    {"d": "inv_gw", "k": "line_ca_voltage", "v": null},
-    {"d": "inv_gw", "k": "energy_total", "v": 12345.6},
-    {"d": "inv_gw", "k": "energy_today", "v": 31.2},
-    {"d": "gw", "k": "rssi", "v": -58},
-    {"d": "gw", "k": "uptime", "v": 86400},
-    {"d": "gw", "k": "fw_version", "v": "0.1.0"}
+    {
+      "d": "inv_gw",
+      "ts": 1794096000,
+      "data": [
+        {"k": "device_serial", "v": "GW10KTDT261107001"},
+        {"k": "device_type", "v": "GW10KT-DT"},
+        {"k": "error_code", "v": 0},
+        {"k": "operating_hours_total", "v": 12580},
+        {"k": "working_status", "v": "on_grid"},
+        {"k": "grid_connection_status", "v": "connected"},
+        {"k": "inverter_temperature", "v": 42.1},
+        {"k": "mppt1_voltage", "v": 512.3},
+        {"k": "mppt1_current", "v": 8.4},
+        {"k": "mppt1_power", "v": 4303.3},
+        {"k": "mppt2_voltage", "v": 509.8},
+        {"k": "mppt2_current", "v": 7.9},
+        {"k": "mppt2_power", "v": 4027.4},
+        {"k": "pv_power_total", "v": 8330.7},
+        {"k": "insulation_resistance", "v": 15.6},
+        {"k": "leakage_current", "v": 12.5},
+        {"k": "active_power", "v": 8010},
+        {"k": "reactive_power", "v": 810},
+        {"k": "power_factor", "v": 0.995},
+        {"k": "phase_a_voltage", "v": 230.2},
+        {"k": "phase_b_voltage", "v": 229.8},
+        {"k": "phase_c_voltage", "v": 231.1},
+        {"k": "phase_a_current", "v": 11.7},
+        {"k": "phase_b_current", "v": 11.6},
+        {"k": "phase_c_current", "v": 11.8},
+        {"k": "phase_a_frequency", "v": 50.01},
+        {"k": "phase_b_frequency", "v": 50.02},
+        {"k": "phase_c_frequency", "v": 50.01},
+        {"k": "grid_frequency", "v": 50.01},
+        {"k": "line_ab_voltage", "v": 398.4},
+        {"k": "line_bc_voltage", "v": 399.1},
+        {"k": "energy_total", "v": 12345.6},
+        {"k": "energy_today", "v": 31.2}
+      ]
+    },
+    {
+      "d": "gw",
+      "ts": 1794096000,
+      "data": [
+        {"k": "rssi", "v": -58},
+        {"k": "uptime", "v": 86400},
+        {"k": "fw_version", "v": "0.1.0"}
+      ]
+    }
   ]
 }
 ```
@@ -295,12 +327,15 @@ Payload shape:
 ### MQTT rules for the IoT team
 
 - MQTT values use normalized engineering units.
-- Every documented key is included in every batch.
-- Unsupported or invalid fields use JSON `null`, not zero and not omission.
+- Only valid keys are included in a device's `data` array.
+- Unsupported, invalid, `NA`, or null fields are omitted, not sent as zero.
+- A device with no valid fields is omitted from `batch`.
+- A completely empty snapshot is not published and is marked processed so it
+  cannot permanently block oldest-first offline replay.
 - `error_code` is an unsigned JSON number.
 - `seq` matches the CSV row and durable queue record.
 - Telemetry should use QoS 1 and `retain=false`.
-- Device identity is included in every telemetry batch.
+- Valid device identity fields are included in every telemetry batch.
 
 ### ESP32 serialization memory
 
